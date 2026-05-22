@@ -9,6 +9,14 @@ import sys
 from pathlib import Path
 from typing import Sequence
 
+from pipeline_config import (
+    PipelineConfigError,
+    PipelineSettings,
+    add_config_argument,
+    apply_runtime_env,
+    load_pipeline_settings,
+)
+
 import torch
 import torchvision.transforms.functional as TVF
 from PIL import Image
@@ -37,34 +45,15 @@ class CaptionError(Exception):
     """Raised when captioning cannot continue safely."""
 
 
-def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
+def parse_args(argv: Sequence[str] | None = None) -> PipelineSettings:
     parser = argparse.ArgumentParser(
         description="Generate JoyCaption Alpha Two captions for a cleaned dataset.",
     )
-    parser.add_argument(
-        "--dataset",
-        type=Path,
-        required=True,
-        help="Directory containing cleaned training images.",
-    )
-    parser.add_argument(
-        "--trigger",
-        type=str,
-        required=True,
-        help="Trigger token prepended to every caption file.",
-    )
-    parser.add_argument(
-        "--overwrite",
-        action="store_true",
-        help="Regenerate captions even when a matching .txt file already exists.",
-    )
-    parser.add_argument(
-        "--max-new-tokens",
-        type=int,
-        default=300,
-        help="Maximum tokens to generate per image.",
-    )
-    return parser.parse_args(argv)
+    add_config_argument(parser)
+    args = parser.parse_args(argv)
+    settings = load_pipeline_settings(args.config)
+    apply_runtime_env(settings)
+    return settings
 
 
 def validate_dataset(dataset_dir: Path) -> None:
@@ -234,23 +223,23 @@ def caption_dataset(
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    args = parse_args(argv)
     try:
-        validate_dataset(args.dataset)
-        images = list_images(args.dataset)
+        settings = parse_args(argv)
+        validate_dataset(settings.dataset_dir)
+        images = list_images(settings.dataset_dir)
         written, skipped = caption_dataset(
             images,
-            args.trigger.strip(),
-            args.overwrite,
-            args.max_new_tokens,
+            settings.trigger_word,
+            settings.caption_overwrite,
+            settings.caption_max_new_tokens,
         )
-    except CaptionError as exc:
+    except (CaptionError, PipelineConfigError) as exc:
         console.print(f"[red]Error:[/red] {exc}")
         return 1
 
     console.print(
         f"[green]Done.[/green] Wrote {written} captions. Skipped existing: {skipped}. "
-        f"Dataset: {args.dataset}"
+        f"Dataset: {settings.dataset_dir}"
     )
     return 0
 

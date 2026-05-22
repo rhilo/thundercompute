@@ -9,6 +9,12 @@ from pathlib import Path
 from typing import Any, Sequence
 
 import yaml
+from pipeline_config import (
+    PipelineConfigError,
+    PipelineSettings,
+    add_config_argument,
+    load_pipeline_settings,
+)
 from rich.console import Console
 
 HF_FLUX_DEV_REPO = "black-forest-labs/FLUX.1-dev"
@@ -40,56 +46,13 @@ class ConfigError(Exception):
     """Raised when configuration synthesis cannot continue safely."""
 
 
-def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
+def parse_args(argv: Sequence[str] | None = None) -> PipelineSettings:
     parser = argparse.ArgumentParser(
         description="Generate an ai-toolkit YAML config for FLUX.1-dev LoRA training.",
     )
-    parser.add_argument(
-        "--dataset",
-        type=Path,
-        required=True,
-        help="Directory containing cleaned images and caption .txt files.",
-    )
-    parser.add_argument(
-        "--output",
-        type=Path,
-        required=True,
-        help="Training output folder passed to ai-toolkit as training_folder.",
-    )
-    parser.add_argument(
-        "--config-out",
-        type=Path,
-        required=True,
-        help="Destination path for the generated YAML configuration.",
-    )
-    parser.add_argument(
-        "--trigger",
-        type=str,
-        required=True,
-        help="Trigger word used in sampling prompts and dataset captions.",
-    )
-    parser.add_argument(
-        "--model-id",
-        type=str,
-        default=None,
-        help=(
-            "Override model reference for ai-toolkit model.name_or_path "
-            f"(default: local diffusers folder or {HF_FLUX_DEV_REPO})."
-        ),
-    )
-    parser.add_argument(
-        "--name",
-        type=str,
-        default="flux_lora_v1",
-        help="Config job name used by ai-toolkit.",
-    )
-    parser.add_argument(
-        "--steps",
-        type=int,
-        default=2000,
-        help="Total training steps.",
-    )
-    return parser.parse_args(argv)
+    add_config_argument(parser)
+    args = parser.parse_args(argv)
+    return load_pipeline_settings(args.config)
 
 
 def validate_dataset(dataset_dir: Path) -> None:
@@ -113,8 +76,13 @@ def is_diffusers_flux_dir(path: Path) -> bool:
     return (path / "transformer" / "config.json").is_file()
 
 
-def find_local_diffusers_dir() -> Path | None:
-    for candidate in DIFFUSERS_DIR_CANDIDATES:
+def find_local_diffusers_dir(settings: PipelineSettings | None = None) -> Path | None:
+    candidates: list[Path] = []
+    if settings is not None and settings.hf_flux_local_dir is not None:
+        candidates.append(settings.hf_flux_local_dir)
+    candidates.extend(DIFFUSERS_DIR_CANDIDATES)
+
+    for candidate in candidates:
         if is_diffusers_flux_dir(candidate):
             return candidate
 
@@ -132,11 +100,21 @@ def find_comfy_safetensors() -> Path | None:
     return None
 
 
-def resolve_model_reference(model_id_override: str | None) -> str:
+def resolve_model_reference(
+    model_id_override: str | None,
+    settings: PipelineSettings | None = None,
+) -> str:
     if model_id_override:
-        return model_id_override.strip()
+        override = model_id_override.strip()
+        if override.endswith(".safetensors"):
+            raise ConfigError(
+                f"training.model_id cannot be a single safetensors file: {override}\n"
+                "Use a diffusers directory (e.g. /home/ubuntu/FLUX.1-dev) or "
+                f"{HF_FLUX_DEV_REPO}."
+            )
+        return override
 
-    local_dir = find_local_diffusers_dir()
+    local_dir = find_local_diffusers_dir(settings)
     if local_dir is not None:
         console.print(
             f"[green]Using local diffusers FLUX.1-dev folder:[/green] {local_dir}"
@@ -166,14 +144,12 @@ def resolve_model_reference(model_id_override: str | None) -> str:
     return HF_FLUX_DEV_REPO
 
 
-def build_config(
-    dataset_dir: Path,
-    training_folder: Path,
-    trigger_word: str,
-    model_reference: str,
-    job_name: str,
-    steps: int,
-) -> dict[str, Any]:
+def build_config(settings: PipelineSettings, model_reference: str) -> dict[str, Any]:
+    dataset_dir = settings.dataset_dir
+    training_folder = settings.training_output_dir
+    trigger_word = settings.trigger_word
+    job_name = settings.job_name
+    steps = settings.training_steps
     dataset_path = str(dataset_dir.resolve())
     training_path = str(training_folder.resolve())
     sample_prompt = "[trigger] portrait photograph, natural lighting, detailed textiles and hair"
@@ -219,7 +195,7 @@ def build_config(
                         "gradient_accumulation_steps": 1,
                         "train_unet": True,
                         "train_text_encoder": False,
-                        "gradient_checkpointing": True,
+                        "gradient_checkpointing": settings.train_gradient_checkpointing,
                         "noise_scheduler": "flowmatch",
                         "optimizer": "adamw8bit",
                         "lr": 1e-4,
@@ -232,7 +208,12 @@ def build_config(
                     "model": {
                         "name_or_path": model_reference,
                         "is_flux": True,
-                        "quantize": True,
+                        "quantize": settings.model_quantize,
+                        **(
+                            {"low_vram": True}
+                            if settings.model_low_vram
+                            else {}
+                        ),
                     },
                     "sample": {
                         "sampler": "flowmatch",
@@ -269,26 +250,21 @@ def write_config(config: dict[str, Any], destination: Path) -> None:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    args = parse_args(argv)
     try:
-        validate_dataset(args.dataset)
-        model_reference = resolve_model_reference(args.model_id)
-        config = build_config(
-            dataset_dir=args.dataset,
-            training_folder=args.output,
-            trigger_word=args.trigger.strip(),
-            model_reference=model_reference,
-            job_name=args.name.strip(),
-            steps=args.steps,
-        )
-        write_config(config, args.config_out)
-    except ConfigError as exc:
+        settings = parse_args(argv)
+        validate_dataset(settings.dataset_dir)
+        model_reference = resolve_model_reference(settings.model_id, settings)
+        config = build_config(settings, model_reference)
+        write_config(config, settings.ai_toolkit_config_out)
+    except (ConfigError, PipelineConfigError) as exc:
         console.print(f"[red]Error:[/red] {exc}")
         return 1
 
     console.print(
-        f"[green]Done.[/green] Wrote config to {args.config_out} "
-        f"with model.name_or_path = {model_reference}"
+        f"[green]Done.[/green] Wrote config to {settings.ai_toolkit_config_out}\n"
+        f"  model.name_or_path = {model_reference}\n"
+        f"  model.quantize = {settings.model_quantize}\n"
+        f"  train.gradient_checkpointing = {settings.train_gradient_checkpointing}"
     )
     return 0
 

@@ -11,6 +11,13 @@ import zipfile
 from pathlib import Path
 from typing import Iterable, Iterator, Sequence
 
+from pipeline_config import (
+    PipelineConfigError,
+    PipelineSettings,
+    add_config_argument,
+    load_pipeline_settings,
+)
+
 import cv2
 import imagehash
 import numpy as np
@@ -32,35 +39,13 @@ class PreprocessError(Exception):
     """Raised when preprocessing cannot continue safely."""
 
 
-def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
+def parse_args(argv: Sequence[str] | None = None) -> PipelineSettings:
     parser = argparse.ArgumentParser(
         description="Sanitize, crop, blur-filter, and deduplicate portrait training images.",
     )
-    parser.add_argument(
-        "--zip",
-        type=Path,
-        required=True,
-        help="Path to a zip archive of raw source images.",
-    )
-    parser.add_argument(
-        "--output",
-        type=Path,
-        required=True,
-        help="Directory where cleaned JPEG assets are written.",
-    )
-    parser.add_argument(
-        "--blur-threshold",
-        type=float,
-        default=80.0,
-        help="Minimum Laplacian variance; images below this value are rejected.",
-    )
-    parser.add_argument(
-        "--hash-threshold",
-        type=int,
-        default=5,
-        help="Minimum Hamming distance between perceptual hashes to keep an image.",
-    )
-    return parser.parse_args(argv)
+    add_config_argument(parser)
+    args = parser.parse_args(argv)
+    return load_pipeline_settings(args.config)
 
 
 def validate_inputs(zip_path: Path, output_dir: Path) -> None:
@@ -230,17 +215,17 @@ def process_images(
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    args = parse_args(argv)
     try:
-        validate_inputs(args.zip, args.output)
-    except PreprocessError as exc:
+        settings = parse_args(argv)
+        validate_inputs(settings.raw_zip, settings.dataset_dir)
+    except (PreprocessError, PipelineConfigError) as exc:
         console.print(f"[red]Error:[/red] {exc}")
         return 1
 
     with tempfile.TemporaryDirectory(prefix="flux_preprocess_") as temp_dir:
         extract_root = Path(temp_dir) / "extracted"
         extract_root.mkdir(parents=True, exist_ok=True)
-        extract_zip(args.zip, extract_root)
+        extract_zip(settings.raw_zip, extract_root)
         source_paths = list(iter_image_paths(extract_root))
         if not source_paths:
             console.print("[red]Error:[/red] No supported images found inside zip archive.")
@@ -248,9 +233,9 @@ def main(argv: Sequence[str] | None = None) -> int:
 
         kept, rejected_blur, rejected_duplicate = process_images(
             source_paths,
-            args.output,
-            args.blur_threshold,
-            args.hash_threshold,
+            settings.dataset_dir,
+            settings.blur_threshold,
+            settings.hash_threshold,
         )
 
     if kept == 0:
@@ -260,7 +245,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     console.print(
         f"[green]Done.[/green] Kept {kept} images. "
         f"Rejected blur: {rejected_blur}. Rejected duplicates: {rejected_duplicate}. "
-        f"Output: {args.output}"
+        f"Output: {settings.dataset_dir}"
     )
     return 0
 

@@ -7,6 +7,13 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "${SCRIPT_DIR}"
 
+PIPELINE_CONFIG="${SCRIPT_DIR}/pipeline.yaml"
+PIPELINE_EXAMPLE="${SCRIPT_DIR}/pipeline.example.yaml"
+if [[ ! -f "${PIPELINE_CONFIG}" && -f "${PIPELINE_EXAMPLE}" ]]; then
+  cp "${PIPELINE_EXAMPLE}" "${PIPELINE_CONFIG}"
+  echo "[setup] Created ${PIPELINE_CONFIG} from pipeline.example.yaml — edit paths and HF token."
+fi
+
 VENV_DIR="${SCRIPT_DIR}/.venv"
 AI_TOOLKIT_DIR="${HOME}/ai-toolkit"
 REQUIREMENTS_FILE="${SCRIPT_DIR}/requirements.txt"

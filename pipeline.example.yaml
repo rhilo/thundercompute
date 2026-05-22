@@ -1,0 +1,45 @@
+# Copy to pipeline.yaml and edit paths/token for your instance:
+#   cp pipeline.example.yaml pipeline.yaml
+
+huggingface:
+  # Paste hf_... token here, or leave null and set token_env / shell export instead.
+  token: null
+  token_env: HF_TOKEN
+  flux_local_dir: /home/ubuntu/FLUX.1-dev
+  hub_offline_during_train: true
+
+project:
+  trigger_word: glecca
+
+paths:
+  raw_zip: /home/ubuntu/raw_assets.zip
+  dataset_dir: /home/ubuntu/dataset/clean_v1
+  training_output_dir: /home/ubuntu/training_run_01
+  ai_toolkit_config_out: /home/ubuntu/ai-toolkit/config/flux_lora_v1.yaml
+
+preprocess:
+  blur_threshold: 80.0
+  hash_threshold: 5
+
+caption:
+  overwrite: false
+  max_new_tokens: 300
+
+training:
+  job_name: flux_lora_v1
+  steps: 2000
+  # Explicit model.name_or_path for ai-toolkit (diffusers folder or HF repo id).
+  # Do NOT use a single .safetensors file — use a diffusers tree, e.g. /home/ubuntu/FLUX.1-dev
+  model_id: /home/ubuntu/FLUX.1-dev
+
+# GPU instance profile — change when you switch machines, then re-run generate_config.py
+instance:
+  # Presets: a100_80gb | standard_24gb  (optional; explicit keys below override preset)
+  profile: a100_80gb
+  quantize: false
+  gradient_checkpointing: false
+  low_vram: false
+
+runtime:
+  disable_otel: true
+  wandb_mode: disabled

@@ -231,30 +231,59 @@
     </section>
 
     <section>
+      <h2>Configuration (<code>pipeline.yaml</code>)</h2>
+      <p>
+        Edit one file instead of passing long CLI flags. On first <code>bash setup.sh</code>,
+        <code>pipeline.yaml</code> is created from <code>pipeline.example.yaml</code> (git-ignored so tokens stay local).
+      </p>
+      <pre><code>cp pipeline.example.yaml pipeline.yaml   # if needed
+nano pipeline.yaml</code></pre>
+      <p>Key sections:</p>
+      <table>
+        <thead>
+          <tr><th>Section</th><th>Keys</th><th>Purpose</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><code>huggingface</code></td><td><code>token</code>, <code>token_env</code>, <code>flux_local_dir</code>, <code>hub_offline_during_train</code></td><td>HF auth and local FLUX path</td></tr>
+          <tr><td><code>project</code></td><td><code>trigger_word</code></td><td>LoRA trigger token</td></tr>
+          <tr><td><code>paths</code></td><td><code>raw_zip</code>, <code>dataset_dir</code>, <code>training_output_dir</code>, <code>ai_toolkit_config_out</code></td><td>All filesystem paths</td></tr>
+          <tr><td><code>preprocess</code></td><td><code>blur_threshold</code>, <code>hash_threshold</code></td><td>Dataset cleaning gates</td></tr>
+          <tr><td><code>caption</code></td><td><code>overwrite</code>, <code>max_new_tokens</code></td><td>JoyCaption behaviour</td></tr>
+          <tr><td><code>training</code></td><td><code>job_name</code>, <code>steps</code>, <code>model_id</code></td><td>ai-toolkit <code>model.name_or_path</code> (diffusers dir or HF repo)</td></tr>
+          <tr><td><code>instance</code></td><td><code>profile</code>, <code>quantize</code>, <code>gradient_checkpointing</code>, <code>low_vram</code></td><td>GPU tuning when switching machines (e.g. A100 80GB vs 24GB)</td></tr>
+          <tr><td><code>runtime</code></td><td><code>disable_otel</code>, <code>wandb_mode</code></td><td>Telemetry / wandb defaults</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section>
       <h2>Quick start</h2>
-      <p>Copy the project to the instance, then run all four stages in order:</p>
+      <p>Copy the project to the instance, edit <code>pipeline.yaml</code>, then:</p>
       <pre><code>cd ~/flux-lora-pipeline
-chmod +x setup.sh
 bash setup.sh
 source .venv/bin/activate
+python3 run_pipeline.py</code></pre>
+      <p>Run individual stages (each reads <code>pipeline.yaml</code>):</p>
+      <pre><code>python3 preprocess.py
+python3 caption.py
+python3 generate_config.py
+bash train.sh</code></pre>
+      <p>Partial runs:</p>
+      <pre><code>python3 run_pipeline.py --only caption,generate_config,train
+python3 run_pipeline.py --from caption</code></pre>
+      <p>When you switch GPU instances, edit <code>instance:</code> in <code>pipeline.yaml</code> and re-run <code>python3 generate_config.py</code>:</p>
+      <pre><code># A100 80GB — full speed
+instance:
+  profile: a100_80gb
+  quantize: false
+  gradient_checkpointing: false
 
-python3 preprocess.py \
-  --zip /home/ubuntu/raw_assets.zip \
-  --output /home/ubuntu/dataset/clean_v1
-
-python3 caption.py \
-  --dataset /home/ubuntu/dataset/clean_v1 \
-  --trigger "glecca"
-
-python3 generate_config.py \
-  --dataset /home/ubuntu/dataset/clean_v1 \
-  --output /home/ubuntu/training_run_01 \
-  --config-out ~/ai-toolkit/config/flux_lora_v1.yaml \
-  --trigger "glecca"
-
-cd ~/ai-toolkit
-python run.py ~/ai-toolkit/config/flux_lora_v1.yaml</code></pre>
-      <p>Replace <code>glecca</code> with your trigger token and adjust paths as needed.</p>
+# 24GB class cards — VRAM-safe defaults
+instance:
+  profile: standard_24gb
+  quantize: true
+  gradient_checkpointing: true</code></pre>
+      <p><code>training.model_id</code> must be a <strong>diffusers folder</strong> or HF repo id, not a lone <code>.safetensors</code> file.</p>
     </section>
 
     <section>
@@ -285,23 +314,8 @@ source .venv/bin/activate</code></pre>
         (15% downward shift when a face is detected), rejects blurry frames, and removes near-duplicates.
         Outputs numbered JPEGs: <code>img_00001.jpg</code>, etc.
       </p>
-      <pre><code>python3 preprocess.py \
-  --zip /home/ubuntu/raw_assets.zip \
-  --output /home/ubuntu/dataset/clean_v1</code></pre>
-
-      <h3>Options</h3>
-      <table>
-        <thead>
-          <tr><th>Flag</th><th>Default</th><th>Description</th></tr>
-        </thead>
-        <tbody>
-          <tr><td><code>--zip</code></td><td>(required)</td><td>Path to zip archive of raw images</td></tr>
-          <tr><td><code>--output</code></td><td>(required)</td><td>Output directory for cleaned JPEGs</td></tr>
-          <tr><td><code>--blur-threshold</code></td><td><code>80.0</code></td><td>Minimum Laplacian variance; lower = stricter blur rejection</td></tr>
-          <tr><td><code>--hash-threshold</code></td><td><code>5</code></td><td>Minimum perceptual-hash Hamming distance to keep an image</td></tr>
-        </tbody>
-      </table>
-      <p>Lower <code>--blur-threshold</code> keeps fewer soft images. Lower <code>--hash-threshold</code> removes more duplicates.</p>
+      <pre><code>python3 preprocess.py</code></pre>
+      <p>Settings: <code>paths.raw_zip</code>, <code>paths.dataset_dir</code>, <code>preprocess.blur_threshold</code>, <code>preprocess.hash_threshold</code> in <code>pipeline.yaml</code>.</p>
     </section>
 
     <section>
@@ -311,22 +325,8 @@ source .venv/bin/activate</code></pre>
         in bfloat16 on GPU. Writes a <code>.txt</code> file beside each image:
         <code>trigger_word, descriptive prose...</code>
       </p>
-      <pre><code>python3 caption.py \
-  --dataset /home/ubuntu/dataset/clean_v1 \
-  --trigger "glecca"</code></pre>
-
-      <h3>Options</h3>
-      <table>
-        <thead>
-          <tr><th>Flag</th><th>Default</th><th>Description</th></tr>
-        </thead>
-        <tbody>
-          <tr><td><code>--dataset</code></td><td>(required)</td><td>Directory of cleaned images (.jpg / .jpeg / .png)</td></tr>
-          <tr><td><code>--trigger</code></td><td>(required)</td><td>Token prepended to every caption</td></tr>
-          <tr><td><code>--overwrite</code></td><td>off</td><td>Regenerate captions even if <code>.txt</code> already exists</td></tr>
-          <tr><td><code>--max-new-tokens</code></td><td><code>300</code></td><td>Maximum tokens generated per image</td></tr>
-        </tbody>
-      </table>
+      <pre><code>python3 caption.py</code></pre>
+      <p>Settings: <code>paths.dataset_dir</code>, <code>project.trigger_word</code>, <code>caption.overwrite</code>, <code>caption.max_new_tokens</code>.</p>
       <p>Requires CUDA. First run downloads the model from Hugging Face (may take several minutes).</p>
     </section>
 
@@ -336,11 +336,7 @@ source .venv/bin/activate</code></pre>
         Writes an ai-toolkit YAML config: LoRA rank/alpha 16, <code>adamw8bit</code>, learning rate <code>1e-4</code>,
         bf16 training, float16 saves, <code>quantize: true</code>, portrait buckets <code>[768, 1152]</code>.
       </p>
-      <pre><code>python3 generate_config.py \
-  --dataset /home/ubuntu/dataset/clean_v1 \
-  --output /home/ubuntu/training_run_01 \
-  --config-out ~/ai-toolkit/config/flux_lora_v1.yaml \
-  --trigger "glecca"</code></pre>
+      <pre><code>python3 generate_config.py</code></pre>
 
       <h3>Model reference (<code>model.name_or_path</code>)</h3>
       <p>
@@ -350,7 +346,7 @@ source .venv/bin/activate</code></pre>
       </p>
       <p><code>generate_config.py</code> picks, in order:</p>
       <ol>
-        <li><code>--model-id</code> if you pass it</li>
+        <li><code>training.model_id</code> in <code>pipeline.yaml</code> if set</li>
         <li>Local diffusers folder: <code>/home/ubuntu/FLUX.1-dev</code> or cached HF snapshot</li>
         <li>Otherwise <code>black-forest-labs/FLUX.1-dev</code> (downloads from Hugging Face on first train)</li>
       </ol>
@@ -360,32 +356,14 @@ hf download black-forest-labs/FLUX.1-dev --local-dir /home/ubuntu/FLUX.1-dev</co
       <p>Use the <code>hf</code> CLI (not the removed <code>huggingface-cli</code>). Install or upgrade with <code>pip install -U huggingface_hub</code>.</p>
       <p>Then regenerate the config so <code>name_or_path</code> points at <code>/home/ubuntu/FLUX.1-dev</code>.</p>
 
-      <h3>Options</h3>
-      <table>
-        <thead>
-          <tr><th>Flag</th><th>Default</th><th>Description</th></tr>
-        </thead>
-        <tbody>
-          <tr><td><code>--dataset</code></td><td>(required)</td><td>Image + caption directory</td></tr>
-          <tr><td><code>--output</code></td><td>(required)</td><td>ai-toolkit <code>training_folder</code> for checkpoints</td></tr>
-          <tr><td><code>--config-out</code></td><td>(required)</td><td>Path for generated YAML</td></tr>
-          <tr><td><code>--trigger</code></td><td>(required)</td><td>Trigger word in config and sample prompts</td></tr>
-          <tr><td><code>--name</code></td><td><code>flux_lora_v1</code></td><td>Job name inside the YAML</td></tr>
-          <tr><td><code>--steps</code></td><td><code>2000</code></td><td>Total training steps</td></tr>
-        </tbody>
-      </table>
+      <p>Settings: <code>paths.*</code>, <code>project.trigger_word</code>, <code>training.job_name</code>, <code>training.steps</code>, <code>training.model_id</code>.</p>
     </section>
 
     <section>
       <h2>Stage 5 — Run training (ai-toolkit)</h2>
       <p>After config generation, start training with the project wrapper (sets current HF download env vars):</p>
-      <pre><code>bash train.sh ~/ai-toolkit/config/flux_lora_v1.yaml</code></pre>
-      <p>Or run ai-toolkit directly:</p>
-      <pre><code>source ~/flux-lora-pipeline/.venv/bin/activate
-export HF_XET_HIGH_PERFORMANCE=1
-unset HF_HUB_ENABLE_HF_TRANSFER
-cd ~/ai-toolkit
-python run.py ~/ai-toolkit/config/flux_lora_v1.yaml</code></pre>
+      <pre><code>bash train.sh</code></pre>
+      <p>Reads <code>paths.ai_toolkit_config_out</code> and runtime env from <code>pipeline.yaml</code>. Optional: <code>bash train.sh /path/to/other.yaml --config pipeline.yaml</code></p>
       <p>
         Checkpoints and samples are written under the <code>training_folder</code> you passed to
         <code>generate_config.py</code> (e.g. <code>/home/ubuntu/training_run_01</code>).
@@ -437,8 +415,11 @@ bash train.sh ~/ai-toolkit/config/flux_lora_v1.yaml</code></pre>
         <div>requirements.txt <span>— Python deps (installed by setup)</span></div>
         <div>preprocess.py <span>— Crop, blur filter, deduplication</span></div>
         <div>caption.py <span>— JoyCaption caption generation</span></div>
+        <div>pipeline.yaml <span>— your editable settings (create from pipeline.example.yaml)</span></div>
+        <div>pipeline_config.py <span>— shared YAML loader</span></div>
+        <div>run_pipeline.py <span>— run all stages from pipeline.yaml</span></div>
         <div>generate_config.py <span>— ai-toolkit YAML synthesizer</span></div>
-        <div>train.sh <span>— training launcher with HF env defaults</span></div>
+        <div>train.sh <span>— training launcher (reads pipeline.yaml)</span></div>
         <div>SPEC.md <span>— Full technical specification</span></div>
       </div>
     </section>
