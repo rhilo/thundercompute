@@ -1,0 +1,498 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>FLUX.1-dev LoRA Training Pipeline</title>
+  <style>
+    :root {
+      --bg: #0f1117;
+      --surface: #1a1d27;
+      --border: #2a3042;
+      --text: #e8ecf4;
+      --muted: #9aa3b8;
+      --accent: #6ea8fe;
+      --accent-dim: #3d5a98;
+      --ok: #3dd68c;
+      --warn: #f5c542;
+      --code-bg: #12151e;
+      --radius: 10px;
+      --font: "Segoe UI", system-ui, -apple-system, sans-serif;
+      --mono: "SF Mono", "Cascadia Code", "Consolas", monospace;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      font-family: var(--font);
+      font-size: 16px;
+      line-height: 1.65;
+      color: var(--text);
+      background: var(--bg);
+    }
+
+    .wrap {
+      max-width: 920px;
+      margin: 0 auto;
+      padding: 2.5rem 1.5rem 4rem;
+    }
+
+    header {
+      margin-bottom: 2.5rem;
+      padding-bottom: 1.5rem;
+      border-bottom: 1px solid var(--border);
+    }
+
+    h1 {
+      margin: 0 0 0.5rem;
+      font-size: 1.85rem;
+      font-weight: 650;
+      letter-spacing: -0.02em;
+    }
+
+    .lede {
+      margin: 0;
+      color: var(--muted);
+      font-size: 1.05rem;
+    }
+
+    h2 {
+      margin: 2.25rem 0 0.75rem;
+      font-size: 1.25rem;
+      font-weight: 600;
+      color: var(--text);
+    }
+
+    h3 {
+      margin: 1.5rem 0 0.5rem;
+      font-size: 1rem;
+      font-weight: 600;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    p { margin: 0.75rem 0; }
+
+    a { color: var(--accent); }
+
+    .pipeline {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 0.5rem;
+      margin: 1.5rem 0;
+    }
+
+    @media (max-width: 720px) {
+      .pipeline { grid-template-columns: 1fr 1fr; }
+    }
+
+    .stage {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 0.85rem 0.75rem;
+      text-align: center;
+      font-size: 0.85rem;
+    }
+
+    .stage strong {
+      display: block;
+      color: var(--accent);
+      margin-bottom: 0.25rem;
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+
+    .callout {
+      background: var(--surface);
+      border-left: 3px solid var(--warn);
+      border-radius: 0 var(--radius) var(--radius) 0;
+      padding: 0.9rem 1.1rem;
+      margin: 1rem 0;
+      font-size: 0.95rem;
+    }
+
+    .callout.ok { border-left-color: var(--ok); }
+
+    .callout strong { color: var(--warn); }
+    .callout.ok strong { color: var(--ok); }
+
+    pre, code {
+      font-family: var(--mono);
+      font-size: 0.88rem;
+    }
+
+    pre {
+      background: var(--code-bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1rem 1.1rem;
+      overflow-x: auto;
+      margin: 0.75rem 0 1.25rem;
+      line-height: 1.5;
+    }
+
+    code {
+      background: var(--code-bg);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 0.1em 0.35em;
+    }
+
+    pre code {
+      border: none;
+      padding: 0;
+      background: none;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 0.75rem 0 1.25rem;
+      font-size: 0.92rem;
+    }
+
+    th, td {
+      text-align: left;
+      padding: 0.55rem 0.75rem;
+      border-bottom: 1px solid var(--border);
+    }
+
+    th {
+      color: var(--muted);
+      font-weight: 600;
+      font-size: 0.8rem;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    ul, ol {
+      margin: 0.5rem 0 1rem;
+      padding-left: 1.35rem;
+    }
+
+    li { margin: 0.35rem 0; }
+
+    .files {
+      display: grid;
+      gap: 0.35rem;
+      font-family: var(--mono);
+      font-size: 0.88rem;
+    }
+
+    .files span { color: var(--muted); }
+
+    footer {
+      margin-top: 3rem;
+      padding-top: 1.25rem;
+      border-top: 1px solid var(--border);
+      color: var(--muted);
+      font-size: 0.85rem;
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <h1>FLUX.1-dev LoRA Training Pipeline</h1>
+      <p class="lede">
+        Automated pipeline for human-subject LoRA training on FLUX.1-dev.
+        Run on a Thunder Compute GPU instance (e.g. <code>tnr-0</code>): setup environment,
+        clean and crop images, generate captions, synthesize ai-toolkit config, then train.
+      </p>
+    </header>
+
+    <section>
+      <h2>Pipeline overview</h2>
+      <div class="pipeline">
+        <div class="stage"><strong>Stage 1</strong>setup.sh</div>
+        <div class="stage"><strong>Stage 2</strong>preprocess.py</div>
+        <div class="stage"><strong>Stage 3</strong>caption.py</div>
+        <div class="stage"><strong>Stage 4</strong>generate_config.py</div>
+      </div>
+      <p>
+        Place all project files in one directory on the instance (for example <code>~/flux-lora-pipeline/</code>).
+        After setup, activate the virtual environment before running any Python step.
+      </p>
+    </section>
+
+    <section>
+      <h2>Prerequisites</h2>
+      <ul>
+        <li>Ubuntu GPU instance with CUDA (Thunder Compute recommended)</li>
+        <li><code>python3</code> (3.10+), <code>git</code>, and network access for pip and Hugging Face</li>
+        <li>Raw training photos packaged as a <code>.zip</code> archive</li>
+        <li>FLUX.1-dev in a <strong>diffusers folder</strong> (e.g. <code>/home/ubuntu/FLUX.1-dev</code>) or Hugging Face access to <code>black-forest-labs/FLUX.1-dev</code> (see Stage 4)</li>
+        <li>Enough VRAM for JoyCaption inference (caption stage) and ai-toolkit training</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>Quick start</h2>
+      <p>Copy the project to the instance, then run all four stages in order:</p>
+      <pre><code>cd ~/flux-lora-pipeline
+chmod +x setup.sh
+bash setup.sh
+source .venv/bin/activate
+
+python3 preprocess.py \
+  --zip /home/ubuntu/raw_assets.zip \
+  --output /home/ubuntu/dataset/clean_v1
+
+python3 caption.py \
+  --dataset /home/ubuntu/dataset/clean_v1 \
+  --trigger "glecca"
+
+python3 generate_config.py \
+  --dataset /home/ubuntu/dataset/clean_v1 \
+  --output /home/ubuntu/training_run_01 \
+  --config-out ~/ai-toolkit/config/flux_lora_v1.yaml \
+  --trigger "glecca"
+
+cd ~/ai-toolkit
+python run.py ~/ai-toolkit/config/flux_lora_v1.yaml</code></pre>
+      <p>Replace <code>glecca</code> with your trigger token and adjust paths as needed.</p>
+    </section>
+
+    <section>
+      <h2>Important: run setup with Bash</h2>
+      <div class="callout">
+        <strong>Do not use:</strong> <code>sh setup.sh</code><br>
+        On Ubuntu, <code>sh</code> is <code>dash</code>, which does not support <code>set -o pipefail</code> and will fail immediately.
+      </div>
+      <div class="callout ok">
+        <strong>Use one of:</strong><br>
+        <code>bash setup.sh</code> &nbsp;·&nbsp; <code>./setup.sh</code> (after <code>chmod +x setup.sh</code>)<br>
+        If you accidentally run <code>sh setup.sh</code>, current <code>setup.sh</code> re-executes itself under Bash automatically.
+      </div>
+    </section>
+
+    <section>
+      <h2>Stage 1 — Environment setup (<code>setup.sh</code>)</h2>
+      <p>Idempotent provisioner: creates <code>.venv</code>, installs PyTorch for CUDA 12.8, pipeline requirements, clones or updates <a href="https://github.com/ostris/ai-toolkit">ostris/ai-toolkit</a> into <code>~/ai-toolkit</code>, then installs <code>~/ai-toolkit/requirements.txt</code> (includes <code>python-dotenv</code>, diffusers, and other training deps).</p>
+      <pre><code>bash setup.sh
+source .venv/bin/activate</code></pre>
+      <p>Re-running setup is safe: existing venv and ai-toolkit repo are updated, not duplicated. The ai-toolkit dependency step can take several minutes.</p>
+    </section>
+
+    <section>
+      <h2>Stage 2 — Dataset preprocessing (<code>preprocess.py</code>)</h2>
+      <p>
+        Extracts images from a zip, crops to 768×1152 portrait (2:3), applies face-aware centering
+        (15% downward shift when a face is detected), rejects blurry frames, and removes near-duplicates.
+        Outputs numbered JPEGs: <code>img_00001.jpg</code>, etc.
+      </p>
+      <pre><code>python3 preprocess.py \
+  --zip /home/ubuntu/raw_assets.zip \
+  --output /home/ubuntu/dataset/clean_v1</code></pre>
+
+      <h3>Options</h3>
+      <table>
+        <thead>
+          <tr><th>Flag</th><th>Default</th><th>Description</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><code>--zip</code></td><td>(required)</td><td>Path to zip archive of raw images</td></tr>
+          <tr><td><code>--output</code></td><td>(required)</td><td>Output directory for cleaned JPEGs</td></tr>
+          <tr><td><code>--blur-threshold</code></td><td><code>80.0</code></td><td>Minimum Laplacian variance; lower = stricter blur rejection</td></tr>
+          <tr><td><code>--hash-threshold</code></td><td><code>5</code></td><td>Minimum perceptual-hash Hamming distance to keep an image</td></tr>
+        </tbody>
+      </table>
+      <p>Lower <code>--blur-threshold</code> keeps fewer soft images. Lower <code>--hash-threshold</code> removes more duplicates.</p>
+    </section>
+
+    <section>
+      <h2>Stage 3 — Captioning (<code>caption.py</code>)</h2>
+      <p>
+        Runs <a href="https://huggingface.co/fancyfeast/llama-joycaption-alpha-two-hf-llava">JoyCaption Alpha Two</a>
+        in bfloat16 on GPU. Writes a <code>.txt</code> file beside each image:
+        <code>trigger_word, descriptive prose...</code>
+      </p>
+      <pre><code>python3 caption.py \
+  --dataset /home/ubuntu/dataset/clean_v1 \
+  --trigger "glecca"</code></pre>
+
+      <h3>Options</h3>
+      <table>
+        <thead>
+          <tr><th>Flag</th><th>Default</th><th>Description</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><code>--dataset</code></td><td>(required)</td><td>Directory of cleaned images (.jpg / .jpeg / .png)</td></tr>
+          <tr><td><code>--trigger</code></td><td>(required)</td><td>Token prepended to every caption</td></tr>
+          <tr><td><code>--overwrite</code></td><td>off</td><td>Regenerate captions even if <code>.txt</code> already exists</td></tr>
+          <tr><td><code>--max-new-tokens</code></td><td><code>300</code></td><td>Maximum tokens generated per image</td></tr>
+        </tbody>
+      </table>
+      <p>Requires CUDA. First run downloads the model from Hugging Face (may take several minutes).</p>
+    </section>
+
+    <section>
+      <h2>Stage 4 — Training config (<code>generate_config.py</code>)</h2>
+      <p>
+        Writes an ai-toolkit YAML config: LoRA rank/alpha 16, <code>adamw8bit</code>, learning rate <code>1e-4</code>,
+        bf16 training, float16 saves, <code>quantize: true</code>, portrait buckets <code>[768, 1152]</code>.
+      </p>
+      <pre><code>python3 generate_config.py \
+  --dataset /home/ubuntu/dataset/clean_v1 \
+  --output /home/ubuntu/training_run_01 \
+  --config-out ~/ai-toolkit/config/flux_lora_v1.yaml \
+  --trigger "glecca"</code></pre>
+
+      <h3>Model reference (<code>model.name_or_path</code>)</h3>
+      <p>
+        ai-toolkit loads FLUX as a <strong>diffusers tree</strong> (folders for <code>transformer</code>, <code>vae</code>,
+        <code>text_encoder</code>, etc.). A single ComfyUI <code>flux1-dev.safetensors</code> file cannot be used as
+        <code>name_or_path</code>.
+      </p>
+      <p><code>generate_config.py</code> picks, in order:</p>
+      <ol>
+        <li><code>--model-id</code> if you pass it</li>
+        <li>Local diffusers folder: <code>/home/ubuntu/FLUX.1-dev</code> or cached HF snapshot</li>
+        <li>Otherwise <code>black-forest-labs/FLUX.1-dev</code> (downloads from Hugging Face on first train)</li>
+      </ol>
+      <p>Download the full model locally (recommended if HF hub is slow or gated):</p>
+      <pre><code>hf auth login
+hf download black-forest-labs/FLUX.1-dev --local-dir /home/ubuntu/FLUX.1-dev</code></pre>
+      <p>Use the <code>hf</code> CLI (not the removed <code>huggingface-cli</code>). Install or upgrade with <code>pip install -U huggingface_hub</code>.</p>
+      <p>Then regenerate the config so <code>name_or_path</code> points at <code>/home/ubuntu/FLUX.1-dev</code>.</p>
+
+      <h3>Options</h3>
+      <table>
+        <thead>
+          <tr><th>Flag</th><th>Default</th><th>Description</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><code>--dataset</code></td><td>(required)</td><td>Image + caption directory</td></tr>
+          <tr><td><code>--output</code></td><td>(required)</td><td>ai-toolkit <code>training_folder</code> for checkpoints</td></tr>
+          <tr><td><code>--config-out</code></td><td>(required)</td><td>Path for generated YAML</td></tr>
+          <tr><td><code>--trigger</code></td><td>(required)</td><td>Trigger word in config and sample prompts</td></tr>
+          <tr><td><code>--name</code></td><td><code>flux_lora_v1</code></td><td>Job name inside the YAML</td></tr>
+          <tr><td><code>--steps</code></td><td><code>2000</code></td><td>Total training steps</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2>Stage 5 — Run training (ai-toolkit)</h2>
+      <p>After config generation, start training with the project wrapper (sets current HF download env vars):</p>
+      <pre><code>bash train.sh ~/ai-toolkit/config/flux_lora_v1.yaml</code></pre>
+      <p>Or run ai-toolkit directly:</p>
+      <pre><code>source ~/flux-lora-pipeline/.venv/bin/activate
+export HF_XET_HIGH_PERFORMANCE=1
+unset HF_HUB_ENABLE_HF_TRANSFER
+cd ~/ai-toolkit
+python run.py ~/ai-toolkit/config/flux_lora_v1.yaml</code></pre>
+      <p>
+        Checkpoints and samples are written under the <code>training_folder</code> you passed to
+        <code>generate_config.py</code> (e.g. <code>/home/ubuntu/training_run_01</code>).
+        Edit the YAML to change steps, sample prompts, or save frequency before re-running.
+      </p>
+    </section>
+
+    <section>
+      <h2>Why is network upload high during training?</h2>
+      <p>
+        Your generated config already sets <code>push_to_hub: false</code> and
+        <code>logging.use_wandb: false</code>. Gemini’s guesses about Weights &amp; Biases or
+        automatic Hugging Face checkpoint pushes are <strong>not</strong> enabled by default in this pipeline.
+      </p>
+      <p>Typical causes of sustained upload on Thunder/cloud instances:</p>
+      <ol>
+        <li>
+          <strong>Hugging Face model fetch (most common early on)</strong> — if
+          <code>name_or_path</code> is <code>black-forest-labs/FLUX.1-dev</code>, the hub client
+          (especially with Xet / <code>HF_XET_HIGH_PERFORMANCE</code>) can show large
+          <em>upload</em> counters while syncing chunks, not only download.
+        </li>
+        <li>
+          <strong>Latent caching</strong> — <code>cache_latents_to_disk: true</code> writes
+          <code>.safetensors</code> sidecars under your dataset folder. On network-backed home
+          disks, btop may count those writes as outbound traffic.
+        </li>
+        <li>
+          <strong>Checkpoint / sample saves</strong> — every 250 steps, LoRA weights and preview
+          images are written under <code>training_folder</code> (local disk I/O, or network storage).
+        </li>
+      </ol>
+      <p>Confirm what your config actually has:</p>
+      <pre><code>grep -E 'push_to_hub|use_wandb|name_or_path|cache_latents' \
+  ~/ai-toolkit/config/flux_lora_v1.yaml</code></pre>
+      <p>See which remote hosts Python is talking to:</p>
+      <pre><code>ss -tpn | grep python</code></pre>
+      <p>After FLUX is fully local, reduce hub traffic:</p>
+      <pre><code>export HF_HUB_OFFLINE=1
+export WANDB_MODE=disabled
+bash train.sh ~/ai-toolkit/config/flux_lora_v1.yaml</code></pre>
+      <p>Use a local diffusers tree (<code>/home/ubuntu/FLUX.1-dev</code>) instead of the HF repo id when generating config.</p>
+    </section>
+
+    <section>
+      <h2>Project files</h2>
+      <div class="files">
+        <div>setup.sh <span>— Bash environment + ai-toolkit clone</span></div>
+        <div>requirements.txt <span>— Python deps (installed by setup)</span></div>
+        <div>preprocess.py <span>— Crop, blur filter, deduplication</span></div>
+        <div>caption.py <span>— JoyCaption caption generation</span></div>
+        <div>generate_config.py <span>— ai-toolkit YAML synthesizer</span></div>
+        <div>train.sh <span>— training launcher with HF env defaults</span></div>
+        <div>SPEC.md <span>— Full technical specification</span></div>
+      </div>
+    </section>
+
+    <section>
+      <h2>Troubleshooting</h2>
+      <table>
+        <thead>
+          <tr><th>Problem</th><th>What to do</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>set: Illegal option -o pipefail</code></td>
+            <td>Run <code>bash setup.sh</code>, not <code>sh setup.sh</code></td>
+          </tr>
+          <tr>
+            <td><code>CUDA is required</code> (caption)</td>
+            <td>Run on a GPU instance; confirm <code>nvidia-smi</code> and PyTorch CUDA after setup</td>
+          </tr>
+          <tr>
+            <td><code>flux1-dev.safetensors/transformer</code> or HF connection error</td>
+            <td>Do not set <code>name_or_path</code> to a single <code>.safetensors</code> file. Use <code>black-forest-labs/FLUX.1-dev</code> or download to <code>/home/ubuntu/FLUX.1-dev</code>, then regenerate config</td>
+          </tr>
+          <tr>
+            <td>All images rejected in preprocess</td>
+            <td>Lower <code>--blur-threshold</code> or raise <code>--hash-threshold</code>; check zip contents</td>
+          </tr>
+          <tr>
+            <td><code>No module named 'dotenv'</code> (ai-toolkit)</td>
+            <td>Install training deps: <code>pip install -r ~/ai-toolkit/requirements.txt</code> (or re-run <code>bash setup.sh</code>)</td>
+          </tr>
+          <tr>
+            <td>Module not found for Python scripts</td>
+            <td><code>source .venv/bin/activate</code> after <code>setup.sh</code></td>
+          </tr>
+          <tr>
+            <td>Heavy network upload during training</td>
+            <td>Usually <strong>not</strong> wandb or <code>push_to_hub</code> (both off in generated config). Common causes: Hugging Face Xet traffic while fetching <code>FLUX.1-dev</code>, or latent/checkpoint writes to network-backed disk. Verify with <code>grep -E 'push_to_hub|use_wandb' ~/ai-toolkit/config/flux_lora_v1.yaml</code> and <code>ss -tpn | grep python</code></td>
+          </tr>
+          <tr>
+            <td><code>HF_HUB_ENABLE_HF_TRANSFER</code> FutureWarning</td>
+            <td>Harmless; training still runs. Re-run <code>bash setup.sh</code> to patch <code>~/ai-toolkit/run.py</code>, or use <code>bash train.sh</code></td>
+          </tr>
+          <tr>
+            <td>Captions skipped</td>
+            <td>Existing <code>.txt</code> files are cached; add <code>--overwrite</code> to regenerate</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <footer>
+      FLUX.1-dev LoRA Training Pipeline · See <code>SPEC.md</code> for implementation details.
+    </footer>
+  </div>
+</body>
+</html>
