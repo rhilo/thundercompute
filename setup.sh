@@ -49,6 +49,26 @@ fi
 # shellcheck source=/dev/null
 source "${VENV_DIR}/bin/activate"
 
+cleanup_invalid_pip_distributions() {
+  python - <<'PY'
+import site
+import shutil
+from pathlib import Path
+
+for site_dir in site.getsitepackages():
+    root = Path(site_dir)
+    if not root.is_dir():
+        continue
+    for path in root.glob("~*"):
+        if path.is_dir():
+            shutil.rmtree(path, ignore_errors=True)
+        else:
+            path.unlink(missing_ok=True)
+PY
+}
+
+cleanup_invalid_pip_distributions
+
 echo "[setup] Upgrading pip"
 python -m pip install --upgrade pip -q
 
@@ -110,4 +130,6 @@ if [[ "${SYNC_DRIVE}" -eq 1 ]]; then
 fi
 
 echo "[setup] Environment ready. Activate with: source ${VENV_DIR}/bin/activate"
-echo "[setup] Optional: bash setup.sh --sync-drive  |  python3 post-setup.py --max-jobs 3  |  python3 batch_caption.py"
+echo "[setup] Optional commands (run separately, not with pipes):"
+echo "[setup]   python3 post-setup.py --max-jobs 3"
+echo "[setup]   python3 batch_caption.py --config pipeline.yaml"

@@ -101,6 +101,16 @@ def install_build_prerequisites() -> None:
         run_pip(["install", *missing])
 
 
+def require_flash_attn_python() -> None:
+    if sys.version_info >= (3, 12):
+        version = f"{sys.version_info.major}.{sys.version_info.minor}"
+        raise PostSetupError(
+            f"flash-attn is not available for Python {version} in this setup. "
+            "This is optional: leave caption.attn as 'auto' or set it to 'sdpa' and run batch_caption.py. "
+            "Use a Python 3.10/3.11 venv only if you specifically need Flash Attention 2."
+        )
+
+
 def build_env(max_jobs: int) -> dict[str, str]:
     env = os.environ.copy()
     env["MAX_JOBS"] = str(max_jobs)
@@ -129,6 +139,7 @@ def install_flash_attn(force: bool, max_jobs: int) -> None:
         print(f"[post-setup] flash-attn already installed ({flash_attn.__version__}); skipping.")
         return
 
+    require_flash_attn_python()
     install_build_prerequisites()
 
     if try_install_flash_attn_wheel(force):
