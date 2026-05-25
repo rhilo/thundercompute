@@ -48,11 +48,17 @@ def parse_args(argv: Sequence[str] | None = None) -> PipelineSettings:
     return load_pipeline_settings(args.config)
 
 
-def validate_inputs(zip_path: Path, output_dir: Path) -> None:
+def validate_zip_input(zip_path: Path, output_dir: Path) -> None:
     if not zip_path.is_file():
         raise PreprocessError(f"Zip archive not found: {zip_path}")
     if not zipfile.is_zipfile(zip_path):
         raise PreprocessError(f"Path is not a valid zip archive: {zip_path}")
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+
+def validate_folder_input(input_dir: Path, output_dir: Path) -> None:
+    if not input_dir.is_dir():
+        raise PreprocessError(f"Input directory not found: {input_dir}")
     output_dir.mkdir(parents=True, exist_ok=True)
 
 
@@ -217,18 +223,34 @@ def process_images(
 def main(argv: Sequence[str] | None = None) -> int:
     try:
         settings = parse_args(argv)
-        validate_inputs(settings.raw_zip, settings.dataset_dir)
     except (PreprocessError, PipelineConfigError) as exc:
         console.print(f"[red]Error:[/red] {exc}")
         return 1
 
-    with tempfile.TemporaryDirectory(prefix="flux_preprocess_") as temp_dir:
-        extract_root = Path(temp_dir) / "extracted"
-        extract_root.mkdir(parents=True, exist_ok=True)
-        extract_zip(settings.raw_zip, extract_root)
-        source_paths = list(iter_image_paths(extract_root))
+    temp_dir_handle: tempfile.TemporaryDirectory[str] | None = None
+    try:
+        source_root: Path
+        source_label: str
+        if settings.input_dir is not None and settings.input_dir.is_dir():
+            validate_folder_input(settings.input_dir, settings.dataset_dir)
+            source_root = settings.input_dir
+            source_label = f"input directory: {settings.input_dir}"
+        elif settings.raw_zip is not None:
+            validate_zip_input(settings.raw_zip, settings.dataset_dir)
+            temp_dir_handle = tempfile.TemporaryDirectory(prefix="flux_preprocess_")
+            extract_root = Path(temp_dir_handle.name) / "extracted"
+            extract_root.mkdir(parents=True, exist_ok=True)
+            extract_zip(settings.raw_zip, extract_root)
+            source_root = extract_root
+            source_label = f"zip archive: {settings.raw_zip}"
+        elif settings.input_dir is not None:
+            raise PreprocessError(f"Input directory not found: {settings.input_dir}")
+        else:
+            raise PreprocessError("No input source configured. Set paths.input_dir or paths.raw_zip.")
+
+        source_paths = list(iter_image_paths(source_root))
         if not source_paths:
-            console.print("[red]Error:[/red] No supported images found inside zip archive.")
+            console.print(f"[red]Error:[/red] No supported images found in {source_label}.")
             return 1
 
         kept, rejected_blur, rejected_duplicate = process_images(
@@ -237,6 +259,12 @@ def main(argv: Sequence[str] | None = None) -> int:
             settings.blur_threshold,
             settings.hash_threshold,
         )
+    except PreprocessError as exc:
+        console.print(f"[red]Error:[/red] {exc}")
+        return 1
+    finally:
+        if temp_dir_handle is not None:
+            temp_dir_handle.cleanup()
 
     if kept == 0:
         console.print("[red]Error:[/red] All images were rejected by quality or deduplication gates.")

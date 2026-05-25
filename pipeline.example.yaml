@@ -12,7 +12,10 @@ project:
   trigger_word: glecca
 
 paths:
-  raw_zip: /home/ubuntu/raw_assets.zip
+  # Drive sync pulls artificial_generation/image/thunder_compute/input here.
+  input_dir: /home/ubuntu/drive_sync/input
+  # Optional legacy zip input. If input_dir is missing, preprocess.py falls back to this.
+  # raw_zip: /home/ubuntu/raw_assets.zip
   dataset_dir: /home/ubuntu/dataset/clean_v1
   training_output_dir: /home/ubuntu/training_run_01
   ai_toolkit_config_out: /home/ubuntu/ai-toolkit/config/flux_lora_v1.yaml

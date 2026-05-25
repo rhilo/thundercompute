@@ -246,7 +246,7 @@ nano pipeline.yaml</code></pre>
         <tbody>
           <tr><td><code>huggingface</code></td><td><code>token</code>, <code>token_env</code>, <code>flux_local_dir</code>, <code>hub_offline_during_train</code></td><td>HF auth and local FLUX path</td></tr>
           <tr><td><code>project</code></td><td><code>trigger_word</code></td><td>LoRA trigger token</td></tr>
-          <tr><td><code>paths</code></td><td><code>raw_zip</code>, <code>dataset_dir</code>, <code>training_output_dir</code>, <code>ai_toolkit_config_out</code></td><td>All filesystem paths</td></tr>
+          <tr><td><code>paths</code></td><td><code>input_dir</code>, <code>dataset_dir</code>, <code>training_output_dir</code>, <code>ai_toolkit_config_out</code></td><td>All filesystem paths; <code>raw_zip</code> is optional legacy input</td></tr>
           <tr><td><code>preprocess</code></td><td><code>blur_threshold</code>, <code>hash_threshold</code></td><td>Dataset cleaning gates</td></tr>
           <tr><td><code>caption</code></td><td><code>backend</code>, <code>attn</code>, <code>batch_size</code>, <code>overwrite</code></td><td>JoyCaption (<code>batch</code> or <code>sequential</code>)</td></tr>
           <tr><td><code>drive</code></td><td><code>rclone_remote</code>, <code>export_loras_dir</code></td><td>Google Drive sync (see below)</td></tr>
@@ -259,9 +259,8 @@ nano pipeline.yaml</code></pre>
 
     <section>
       <h2>Quick start</h2>
-      <p>Copy the project to the instance, configure rclone once, then start the TUI. <code>start.sh</code> creates a minimal venv for Textual if setup has not run yet.</p>
-      <pre><code>rclone config
-cd ~/flux-lora-pipeline
+      <p>Copy the project to the instance, then start the TUI. <code>start.sh</code> installs/checks <code>rclone</code>, runs <code>rclone config</code> if the <code>gdrive</code> remote is missing, and creates a minimal venv for Textual if setup has not run yet.</p>
+      <pre><code>cd ~/flux-lora-pipeline
 bash start.sh</code></pre>
       <p>
         The TUI is the default starting point. Choose <strong>Train LoRA</strong> for setup,
@@ -315,12 +314,12 @@ source .venv/bin/activate</code></pre>
     <section>
       <h2>Stage 2 — Dataset preprocessing (<code>preprocess.py</code>)</h2>
       <p>
-        Extracts images from a zip, crops to 768×1152 portrait (2:3), applies face-aware centering
+        Reads curated images from <code>paths.input_dir</code> (Drive <code>thunder_compute/input/</code>), crops to 768×1152 portrait (2:3), applies face-aware centering
         (15% downward shift when a face is detected), rejects blurry frames, and removes near-duplicates.
         Outputs numbered JPEGs: <code>img_00001.jpg</code>, etc.
       </p>
       <pre><code>python3 preprocess.py</code></pre>
-      <p>Settings: <code>paths.raw_zip</code>, <code>paths.dataset_dir</code>, <code>preprocess.blur_threshold</code>, <code>preprocess.hash_threshold</code> in <code>pipeline.yaml</code>.</p>
+      <p>Settings: <code>paths.input_dir</code>, <code>paths.dataset_dir</code>, <code>preprocess.blur_threshold</code>, <code>preprocess.hash_threshold</code> in <code>pipeline.yaml</code>. Optional legacy fallback: <code>paths.raw_zip</code>.</p>
     </section>
 
     <section>

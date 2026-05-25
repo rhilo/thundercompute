@@ -279,7 +279,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 from pipeline_config import load_pipeline_settings
 
                 settings = load_pipeline_settings()
-                link_raw_zip_from_input(staging / "input", settings.raw_zip)
+                if settings.raw_zip is not None:
+                    link_raw_zip_from_input(staging / "input", settings.raw_zip)
             except Exception:
                 link_raw_zip_from_input(staging / "input", Path("/home/ubuntu/raw_assets.zip"))
 

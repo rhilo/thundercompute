@@ -73,7 +73,8 @@ class PipelineSettings:
     hf_flux_local_dir: Path | None
     hf_hub_offline: bool
     trigger_word: str
-    raw_zip: Path
+    input_dir: Path | None
+    raw_zip: Path | None
     dataset_dir: Path
     training_output_dir: Path
     ai_toolkit_config_out: Path
@@ -110,6 +111,13 @@ def _require_key(section: dict[str, Any], section_name: str, key: str) -> Any:
     if key not in section or section[key] in (None, ""):
         raise PipelineConfigError(f"Missing required '{section_name}.{key}' in pipeline config.")
     return section[key]
+
+
+def _optional_path(section: dict[str, Any], key: str) -> Path | None:
+    value = section.get(key)
+    if value in (None, ""):
+        return None
+    return Path(str(value)).expanduser()
 
 
 def _resolve_config_path(config_path: Path | None) -> Path:
@@ -193,6 +201,13 @@ def load_pipeline_settings(config_path: Path | None = None) -> PipelineSettings:
 
     flux_dir_raw = huggingface.get("flux_local_dir")
     hf_flux_local_dir = Path(flux_dir_raw).expanduser() if flux_dir_raw else None
+    input_dir = _optional_path(paths, "input_dir")
+    raw_zip = _optional_path(paths, "raw_zip")
+    if input_dir is None and raw_zip is None:
+        raise PipelineConfigError(
+            "Missing training input. Set 'paths.input_dir' for folder input "
+            "or optional legacy 'paths.raw_zip' for zip input."
+        )
 
     return PipelineSettings(
         config_path=resolved,
@@ -201,7 +216,8 @@ def load_pipeline_settings(config_path: Path | None = None) -> PipelineSettings:
         hf_flux_local_dir=hf_flux_local_dir,
         hf_hub_offline=bool(huggingface.get("hub_offline_during_train", True)),
         trigger_word=trigger_word,
-        raw_zip=Path(str(_require_key(paths, "paths", "raw_zip"))).expanduser(),
+        input_dir=input_dir,
+        raw_zip=raw_zip,
         dataset_dir=Path(str(_require_key(paths, "paths", "dataset_dir"))).expanduser(),
         training_output_dir=Path(str(_require_key(paths, "paths", "training_output_dir"))).expanduser(),
         ai_toolkit_config_out=Path(str(_require_key(paths, "paths", "ai_toolkit_config_out"))).expanduser(),
