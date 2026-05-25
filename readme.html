@@ -411,6 +411,11 @@ python3 drive_sync.py check</code></pre>
       <p>
         The menu has two main choices: <strong>Train LoRA</strong> and <strong>Generate Images (ComfyUI)</strong>.
       </p>
+      <p>
+        While a job runs, its output appears in the bottom log panel. The same text is saved under
+        <code>logs/tui-*.log</code> in the repo. In a second SSH session you can watch live with:
+        <code>tail -f ~/thundercompute/logs/tui-*.log</code>
+      </p>
 
       <h3>Training Buttons</h3>
       <table>

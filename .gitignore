@@ -8,3 +8,4 @@ example_folder_structure/
 *.zip
 .DS_Store
 HANDOFF.md
+logs/
