@@ -164,7 +164,8 @@ class PipelineTUI(App[None]):
         config_status = "pipeline.yaml OK" if PIPELINE_CONFIG.exists() else "pipeline.yaml will be created"
         self.query_one("#status", Label).update(f"{text}  [{config_status}]")
 
-    def log(self, message: str) -> None:
+    def write_log(self, message: str) -> None:
+        """Append to the RichLog panel. Do not name this 'log' — it shadows Textual's App.log."""
         self.query_one("#log", RichLog).write(message)
 
     def ensure_pipeline_config(self) -> None:
@@ -173,12 +174,12 @@ class PipelineTUI(App[None]):
         if not PIPELINE_EXAMPLE.exists():
             raise FileNotFoundError(f"Missing {PIPELINE_EXAMPLE}")
         shutil.copy2(PIPELINE_EXAMPLE, PIPELINE_CONFIG)
-        self.log(f"[green]Created[/green] {PIPELINE_CONFIG.name} from {PIPELINE_EXAMPLE.name}")
+        self.write_log(f"[green]Created[/green] {PIPELINE_CONFIG.name} from {PIPELINE_EXAMPLE.name}")
 
     async def on_button_pressed(self, event: Button.Pressed) -> None:
         button_id = event.button.id or ""
         if self.running:
-            self.log("[yellow]A command is already running.[/yellow]")
+            self.write_log("[yellow]A command is already running.[/yellow]")
             return
 
         if button_id == "mode_home":
@@ -227,11 +228,11 @@ class PipelineTUI(App[None]):
             if self.mode == "training":
                 self.save_selected_hardware_preset()
             for label, command in steps:
-                self.log(f"\n[bold cyan]>> {label}[/bold cyan]")
+                self.write_log(f"\n[bold cyan]>> {label}[/bold cyan]")
                 await self.run_command(command)
-            self.log("\n[bold green]Workflow complete.[/bold green]")
+            self.write_log("\n[bold green]Workflow complete.[/bold green]")
         except Exception as exc:
-            self.log(f"\n[bold red]Stopped:[/bold red] {exc}")
+            self.write_log(f"\n[bold red]Stopped:[/bold red] {exc}")
         finally:
             self.running = False
             self.set_buttons_disabled(False)
@@ -250,7 +251,7 @@ class PipelineTUI(App[None]):
         preset_key = self.selected_hardware_preset()
         write_hardware_preset(PIPELINE_CONFIG, preset_key)
         label = THUNDER_HARDWARE_PRESETS[preset_key].label
-        self.log(f"[green]Hardware preset saved:[/green] {label} ({preset_key})")
+        self.write_log(f"[green]Hardware preset saved:[/green] {label} ({preset_key})")
 
     def load_configured_hardware_preset(self) -> str:
         if not PIPELINE_CONFIG.is_file():
@@ -264,7 +265,7 @@ class PipelineTUI(App[None]):
         return profile if profile in THUNDER_HARDWARE_PRESETS else "best"
 
     async def run_command(self, command: list[str]) -> None:
-        self.log(f"[dim]{' '.join(command)}[/dim]")
+        self.write_log(f"[dim]{' '.join(command)}[/dim]")
         process = await asyncio.create_subprocess_exec(
             *command,
             cwd=SCRIPT_DIR,
@@ -276,7 +277,7 @@ class PipelineTUI(App[None]):
             line = await process.stdout.readline()
             if not line:
                 break
-            self.log(line.decode(errors="replace").rstrip())
+            self.write_log(line.decode(errors="replace").rstrip())
         returncode = await process.wait()
         if returncode != 0:
             raise RuntimeError(f"{command[0]} exited with {returncode}")
@@ -328,7 +329,7 @@ class PipelineTUI(App[None]):
             self.ensure_pipeline_config()
             self.save_selected_hardware_preset()
         except PipelineConfigError as exc:
-            self.log(f"[bold red]Hardware preset not saved:[/bold red] {exc}")
+            self.write_log(f"[bold red]Hardware preset not saved:[/bold red] {exc}")
         finally:
             self.running = False
             self.set_buttons_disabled(False)
@@ -415,9 +416,9 @@ class PipelineTUI(App[None]):
         try:
             for path in checks:
                 if path.is_dir() and any(path.iterdir()):
-                    self.log(f"[green]OK[/green] {path}")
+                    self.write_log(f"[green]OK[/green] {path}")
                 else:
-                    self.log(f"[yellow]Missing or empty[/yellow] {path}")
+                    self.write_log(f"[yellow]Missing or empty[/yellow] {path}")
         finally:
             self.running = False
             self.set_buttons_disabled(False)
