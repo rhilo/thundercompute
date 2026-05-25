@@ -26,17 +26,33 @@ VENV_DIR="${SCRIPT_DIR}/.venv"
 AI_TOOLKIT_DIR="${HOME}/ai-toolkit"
 AI_TOOLKIT_REF="fbac1cb7f50f86b539f5c56a7847ef8878df012f"
 REQUIREMENTS_FILE="${SCRIPT_DIR}/requirements.txt"
+MIN_RCLONE_VERSION="1.68.0"
 
-install_rclone() {
-  if command -v rclone >/dev/null 2>&1; then
+rclone_needs_install() {
+  if ! command -v rclone >/dev/null 2>&1; then
     return 0
   fi
-  echo "[setup] Installing rclone"
+  local version
+  version="$(rclone version | awk 'NR==1 {print $2}' | sed 's/^v//')"
+  if [[ -z "${version}" ]]; then
+    return 0
+  fi
+  [[ "$(printf '%s\n%s\n' "${MIN_RCLONE_VERSION}" "${version}" | sort -V | head -n 1)" != "${MIN_RCLONE_VERSION}" ]]
+}
+
+install_rclone() {
+  if ! rclone_needs_install; then
+    return 0
+  fi
+  echo "[setup] Installing current rclone (Ubuntu apt can be too old for Google login)"
   if command -v apt-get >/dev/null 2>&1; then
     sudo apt-get update -qq
-    sudo apt-get install -y -qq rclone
+    sudo apt-get install -y -qq curl unzip
+    curl -fsSL https://rclone.org/install.sh | sudo bash
+  elif command -v curl >/dev/null 2>&1; then
+    curl -fsSL https://rclone.org/install.sh | sudo bash
   else
-    echo "[setup] Error: rclone not found and apt-get unavailable. Install rclone manually." >&2
+    echo "[setup] Error: curl unavailable. Install current rclone manually from https://rclone.org/downloads/" >&2
     exit 1
   fi
 }
@@ -59,6 +75,28 @@ drive_remote_name() {
   printf '%s\n' "${remote_name:-gdrive}"
 }
 
+print_rclone_config_help() {
+  local remote_name="$1"
+  cat <<EOF
+[setup] Google Drive setup uses rclone. Create one remote for this project.
+[setup] In the rclone wizard, use these answers:
+[setup]   n                         # New remote
+[setup]   name: ${remote_name}
+[setup]   Storage: drive            # Google Drive; type 'drive' or choose its number
+[setup]   client_id: <press Enter>
+[setup]   client_secret: <press Enter>
+[setup]   scope: 1                  # Full Drive access, needed for pull and push
+[setup]   root_folder_id: <press Enter>
+[setup]   service_account_file: <press Enter>
+[setup]   Edit advanced config: n
+[setup]   Use auto config: n        # Headless/cloud instance
+[setup]   Open the printed URL in your browser, approve Google access, paste the code back here.
+[setup]   Configure shared/team drive: n
+[setup]   Keep this remote: y
+[setup]   Quit config: q
+EOF
+}
+
 ensure_rclone_remote() {
   local remote_name="$1"
   if rclone lsd "${remote_name}:" >/dev/null 2>&1; then
@@ -67,6 +105,7 @@ ensure_rclone_remote() {
 
   echo "[setup] rclone remote '${remote_name}' is not configured or is not accessible."
   echo "[setup] Starting 'rclone config'. Create a Google Drive remote named '${remote_name}'."
+  print_rclone_config_help "${remote_name}"
   rclone config
 
   if ! rclone lsd "${remote_name}:" >/dev/null 2>&1; then

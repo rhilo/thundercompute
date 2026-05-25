@@ -197,345 +197,651 @@
 <body>
   <div class="wrap">
     <header>
-      <h1>FLUX.1-dev LoRA Training Pipeline</h1>
+      <h1>Thunder Compute FLUX LoRA Pipeline</h1>
       <p class="lede">
-        Automated pipeline for human-subject LoRA training on FLUX.1-dev.
-        Run on a Thunder Compute GPU instance (e.g. <code>tnr-0</code>): setup environment,
-        clean and crop images, generate captions, synthesize ai-toolkit config, then train.
+        A complete guide for setting up a GPU instance, copying training files from Google Drive,
+        preparing images, captioning images, creating the training file for ai-toolkit, training a LoRA,
+        sending the LoRA back to Google Drive, and using the LoRA later in ComfyUI.
       </p>
     </header>
 
     <section>
-      <h2>Start Here</h2>
+      <h2>Read This First</h2>
+      <div class="callout ok">
+        <strong>Start the project menu with:</strong><br>
+        <code>bash tui.sh</code>
+      </div>
       <p>
-        The interactive terminal UI is launched with <code>bash tui.sh</code> or <code>bash start.sh</code>.
-        <code>run_pipeline.py</code> is <strong>not</strong> the TUI; it is the non-interactive CLI runner for scripted stage execution.
+        The project menu is the screen opened by <code>bash tui.sh</code>. It is also called the TUI,
+        which means terminal user interface. It is not the same thing as the Google Drive setup wizard.
       </p>
+      <p>
+        The old-looking screen that asks <code>n/s/q</code>, <code>Storage&gt;</code>, and similar questions is
+        <code>rclone config</code>. That is an outside program used to connect the instance to Google Drive.
+        It is not the project menu.
+      </p>
+      <p>
+        <code>run_pipeline.py</code> is also not the project menu. It is a command-line runner for people who
+        want to run pipeline steps without using buttons.
+      </p>
+    </section>
+
+    <section>
+      <h2>If You Are At The Rclone Screen Now</h2>
+      <p>
+        If your terminal currently says <code>Type of storage to configure</code> and shows a long numbered list,
+        choose Google Drive.
+      </p>
+      <pre><code>Storage&gt; drive</code></pre>
+      <p>
+        On older rclone versions, Google Drive may be number <code>13</code>. You can type either the word
+        <code>drive</code> or the number shown next to <code>Google Drive</code>.
+      </p>
+      <p>For the earlier prompt that says <code>name&gt;</code>, type this:</p>
+      <pre><code>name&gt; gdrive</code></pre>
+      <p>
+        The name <code>gdrive</code> matters because the project config expects that name unless you change it.
+      </p>
+    </section>
+
+    <section>
+      <h2>The Short Version</h2>
+      <p>Run these commands from a new Thunder Compute Ubuntu instance:</p>
       <pre><code>git clone https://github.com/rhilo/thundercompute
 cd thundercompute
 cp pipeline.example.yaml pipeline.yaml
 nano pipeline.yaml
 bash tui.sh</code></pre>
-    </section>
-
-    <section>
-      <h2>Pipeline overview</h2>
-      <div class="pipeline">
-        <div class="stage"><strong>Stage 1</strong>setup.sh</div>
-        <div class="stage"><strong>Stage 2</strong>preprocess.py</div>
-        <div class="stage"><strong>Stage 3</strong>batch_caption</div>
-        <div class="stage"><strong>Stage 4</strong>generate_config.py</div>
-      </div>
       <p>
-        Place all project files in one directory on the instance (for example <code>~/thundercompute/</code>).
-        After setup, activate the virtual environment before running any Python step.
+        Edit <code>pipeline.yaml</code> before training. At minimum, set your trigger word, check the local paths,
+        and decide whether your input images come from Google Drive or a local folder.
       </p>
     </section>
 
     <section>
-      <h2>Prerequisites</h2>
-      <ul>
-        <li>Ubuntu GPU instance with CUDA (Thunder Compute recommended)</li>
-        <li><code>python3</code> (3.10+), <code>git</code>, and network access for pip and Hugging Face</li>
-        <li>Raw training photos in Drive <code>artificial_generation/image/thunder_compute/input/</code> or a local folder set as <code>paths.input_dir</code></li>
-        <li>FLUX.1-dev in a <strong>diffusers folder</strong> (e.g. <code>/home/ubuntu/FLUX.1-dev</code>) or Hugging Face access to <code>black-forest-labs/FLUX.1-dev</code> (see Stage 4)</li>
-        <li>Enough VRAM for JoyCaption inference (caption stage) and ai-toolkit training</li>
-      </ul>
-    </section>
-
-    <section>
-      <h2>Configuration (<code>pipeline.yaml</code>)</h2>
-      <p>
-        Edit one file instead of passing long CLI flags. On first <code>bash setup.sh</code>,
-        <code>pipeline.yaml</code> is created from <code>pipeline.example.yaml</code> (git-ignored so tokens stay local).
-      </p>
-      <pre><code>cp pipeline.example.yaml pipeline.yaml   # if needed
-nano pipeline.yaml</code></pre>
-      <p>Key sections:</p>
+      <h2>What The Project Does</h2>
+      <p>This project has two workflows.</p>
       <table>
         <thead>
-          <tr><th>Section</th><th>Keys</th><th>Purpose</th></tr>
+          <tr><th>Workflow</th><th>Use it when</th><th>What it does</th></tr>
         </thead>
         <tbody>
-          <tr><td><code>huggingface</code></td><td><code>token</code>, <code>token_env</code>, <code>flux_local_dir</code>, <code>hub_offline_during_train</code></td><td>HF auth and local FLUX path</td></tr>
-          <tr><td><code>project</code></td><td><code>trigger_word</code></td><td>LoRA trigger token</td></tr>
-          <tr><td><code>paths</code></td><td><code>input_dir</code>, <code>dataset_dir</code>, <code>training_output_dir</code>, <code>ai_toolkit_config_out</code></td><td>All filesystem paths; <code>raw_zip</code> is optional legacy input</td></tr>
-          <tr><td><code>preprocess</code></td><td><code>blur_threshold</code>, <code>hash_threshold</code></td><td>Dataset cleaning gates</td></tr>
-          <tr><td><code>caption</code></td><td><code>backend</code>, <code>attn</code>, <code>batch_size</code>, <code>overwrite</code></td><td>JoyCaption (<code>batch</code> or <code>sequential</code>)</td></tr>
-          <tr><td><code>drive</code></td><td><code>rclone_remote</code>, <code>export_loras_dir</code></td><td>Google Drive sync (see below)</td></tr>
-          <tr><td><code>training</code></td><td><code>job_name</code>, <code>steps</code>, <code>model_id</code></td><td>ai-toolkit <code>model.name_or_path</code> (diffusers dir or HF repo)</td></tr>
-          <tr><td><code>instance</code></td><td><code>profile</code>, <code>quantize</code>, <code>gradient_checkpointing</code>, <code>low_vram</code></td><td>GPU tuning when switching machines (e.g. A100 80GB vs 24GB)</td></tr>
-          <tr><td><code>runtime</code></td><td><code>disable_otel</code>, <code>wandb_mode</code></td><td>Telemetry / wandb defaults</td></tr>
+          <tr>
+            <td>Train LoRA</td>
+            <td>You have training photos and want to make a FLUX.1-dev LoRA.</td>
+            <td>Pull images and model files, clean images, create captions, create an ai-toolkit training file, train, export the LoRA, and push the LoRA to Drive.</td>
+          </tr>
+          <tr>
+            <td>Generate Images</td>
+            <td>You have a ComfyUI instance and want to use trained LoRAs.</td>
+            <td>Pull ComfyUI model folders and LoRAs from Drive, then push rendered images back to Drive.</td>
+          </tr>
         </tbody>
       </table>
     </section>
 
     <section>
-      <h2>Quick start</h2>
-      <p>
-        Start the TUI first. <code>tui.sh</code> calls <code>start.sh</code>, which installs/checks <code>rclone</code>,
-        runs <code>rclone config</code> if the configured remote is missing, and creates a minimal venv for Textual if setup has not run yet.
-      </p>
-      <pre><code>cd ~/thundercompute
-bash tui.sh</code></pre>
-      <p>
-        The TUI is the default starting point. Choose <strong>Train LoRA</strong> for setup,
-        Drive pull, preprocessing, captioning, config generation, training, and LoRA push.
-        Choose <strong>Generate Images</strong> for ComfyUI model pulls and render pushes.
-      </p>
-      <p>Advanced CLI runs are still available (each reads <code>pipeline.yaml</code>). Run these separately; do not connect them with <code>|</code> pipes:</p>
-      <pre><code>python3 preprocess.py
-python3 batch_caption.py
-python3 generate_config.py
-bash train.sh</code></pre>
-      <p>Partial runs:</p>
-      <pre><code>python3 run_pipeline.py --only caption,generate_config,train
-python3 run_pipeline.py --from caption</code></pre>
-      <p><code>run_pipeline.py</code> is the scripted pipeline runner. It does not open an interactive UI.</p>
-      <p>When you switch GPU instances, edit <code>instance:</code> in <code>pipeline.yaml</code> and re-run <code>python3 generate_config.py</code>:</p>
-      <pre><code># A100 80GB — full speed
-instance:
-  profile: a100_80gb
-  quantize: false
-  gradient_checkpointing: false
-
-# 24GB class cards — VRAM-safe defaults
-instance:
-  profile: standard_24gb
-  quantize: true
-  gradient_checkpointing: true</code></pre>
-      <p><code>training.model_id</code> must be a <strong>diffusers folder</strong> or HF repo id, not a lone <code>.safetensors</code> file.</p>
+      <h2>Important Rules</h2>
+      <ul>
+        <li>Run commands one at a time. Do not connect project commands with <code>|</code>.</li>
+        <li>Use <code>bash setup.sh</code>, not <code>sh setup.sh</code>.</li>
+        <li>Use <code>bash tui.sh</code> for the project menu.</li>
+        <li>Use <code>python3 run_pipeline.py</code> only when you want the command-line runner.</li>
+        <li>Use <code>rclone config</code> only to connect Google Drive.</li>
+        <li>The training model must be a FLUX diffusers folder or a Hugging Face model name. Do not use one single <code>.safetensors</code> file for training.</li>
+        <li><code>post-setup.py</code> is optional. You do not need it for normal captioning when <code>caption.attn</code> is <code>auto</code> or <code>sdpa</code>.</li>
+      </ul>
     </section>
 
     <section>
-      <h2>Important: run setup with Bash</h2>
-      <div class="callout">
-        <strong>Do not use:</strong> <code>sh setup.sh</code><br>
-        On Ubuntu, <code>sh</code> is <code>dash</code>, which does not support <code>set -o pipefail</code> and will fail immediately.
+      <h2>What Goes Where</h2>
+      <h3>On The Thunder Instance</h3>
+      <table>
+        <thead>
+          <tr><th>Path</th><th>What it is</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><code>~/thundercompute</code></td><td>This repository.</td></tr>
+          <tr><td><code>~/thundercompute/.venv</code></td><td>The Python environment used by the scripts.</td></tr>
+          <tr><td><code>~/ai-toolkit</code></td><td>The training program cloned by <code>setup.sh</code>.</td></tr>
+          <tr><td><code>/home/ubuntu/drive_sync/input</code></td><td>Training images copied from Google Drive.</td></tr>
+          <tr><td><code>/home/ubuntu/dataset/clean_v1</code></td><td>Cleaned and cropped training images.</td></tr>
+          <tr><td><code>/home/ubuntu/training_run_01</code></td><td>Training output: checkpoints, samples, and saved LoRA files.</td></tr>
+          <tr><td><code>/home/ubuntu/export/loras</code></td><td>LoRA files prepared for upload to Google Drive.</td></tr>
+          <tr><td><code>/home/ubuntu/FLUX.1-dev</code></td><td>Local FLUX.1-dev diffusers folder, if you keep the model locally.</td></tr>
+          <tr><td><code>/home/ubuntu/ComfyUI</code></td><td>ComfyUI install location on a generation instance. This repo does not install ComfyUI.</td></tr>
+        </tbody>
+      </table>
+
+      <h3>In Google Drive</h3>
+      <p>The scripts only work inside this Drive folder:</p>
+      <pre><code>artificial_generation/image/thunder_compute/</code></pre>
+      <p>The expected layout is:</p>
+      <pre><code>artificial_generation/
+  image/
+    thunder_compute/
+      input/              # training images copied down to the training instance
+      models/
+        FLUX.1-dev/       # full diffusers model folder for training
+        unet/             # ComfyUI UNet files
+        clip/             # ComfyUI CLIP files
+        vae/              # ComfyUI VAE files
+        loras/            # LoRAs that ComfyUI should use
+      output/
+        loras/            # trained LoRAs copied up from training instances
+        images/           # rendered images copied up from ComfyUI instances
+      venv/               # optional wheel/cache folder, not a full replacement for setup.sh</code></pre>
+      <p>
+        The scripts refuse to touch Drive folders named <code>archive</code>. The working folder is
+        <code>thunder_compute</code>.
+      </p>
+    </section>
+
+    <section>
+      <h2>One-Time Google Drive Setup</h2>
+      <p>
+        Google Drive access is handled by <code>rclone</code>. This is a separate tool. The project uses it
+        because it can copy large folders between a cloud instance and Google Drive.
+      </p>
+      <p>
+        Use a current rclone release. The Ubuntu package can be old enough that Google rejects the login page with
+        <code>Access blocked: rclone's request is invalid</code>. The project scripts install current rclone from
+        rclone's official installer instead of relying on Ubuntu's stale package.
+      </p>
+      <pre><code>rclone version
+curl -fsSL https://rclone.org/install.sh | sudo bash
+rclone version</code></pre>
+      <p>
+        The default remote name is <code>gdrive</code>. Keep these two settings the same:
+      </p>
+      <table>
+        <thead>
+          <tr><th>File</th><th>Setting</th><th>Default</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><code>pipeline.yaml</code></td><td><code>drive.rclone_remote</code></td><td><code>gdrive</code></td></tr>
+          <tr><td><code>drive.manifest.yaml</code></td><td><code>rclone_remote</code></td><td><code>gdrive</code></td></tr>
+        </tbody>
+      </table>
+
+      <h3>Start the wizard</h3>
+      <pre><code>rclone config</code></pre>
+
+      <h3>Exact answers</h3>
+      <pre><code>n                         # New remote
+name&gt; gdrive              # Must match pipeline.yaml and drive.manifest.yaml
+Storage&gt; drive            # Or type the number shown next to Google Drive
+client_id&gt;                # Press Enter
+client_secret&gt;            # Press Enter
+scope&gt; 1                  # Full Drive access, needed for copy down and copy up
+root_folder_id&gt;           # Press Enter
+service_account_file&gt;     # Press Enter
+Edit advanced config? n
+Use auto config? n        # Use n on a rented cloud instance
+
+# rclone prints a Google login URL.
+# Open that URL in your normal browser, approve access, then paste the code back into SSH.
+
+Configure this as a Shared Drive? n
+Keep this remote? y
+q                         # Quit config</code></pre>
+
+      <h3>Check that it works</h3>
+      <pre><code>rclone lsd gdrive:
+python3 drive_sync.py check</code></pre>
+      <p>
+        If the first command cannot list your Drive, the project cannot copy files yet. Re-run
+        <code>rclone config</code> and check that the remote is named <code>gdrive</code>.
+      </p>
+      <p>
+        If Google shows <code>Access blocked</code>, stop the rclone wizard with <code>Ctrl+C</code>, install current
+        rclone with the command above, then run <code>rclone config</code> again.
+      </p>
+    </section>
+
+    <section>
+      <h2>The Project Menu</h2>
+      <p>Open the project menu with:</p>
+      <pre><code>bash tui.sh</code></pre>
+      <p>
+        <code>tui.sh</code> calls <code>start.sh</code>. <code>start.sh</code> installs <code>rclone</code> if needed,
+        creates a small Python environment if needed, and opens <code>pipeline_tui.py</code>.
+        It now opens the menu even if Google Drive is not configured yet.
+      </p>
+      <p>
+        The menu has two main choices: <strong>Train LoRA</strong> and <strong>Generate Images (ComfyUI)</strong>.
+      </p>
+
+      <h3>Training Buttons</h3>
+      <table>
+        <thead>
+          <tr><th>Button</th><th>What it runs</th><th>When to use it</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Save Hardware Preset</td><td>Writes your selected machine type into <code>pipeline.yaml</code>.</td><td>Use after choosing a GPU and RAM preset.</td></tr>
+          <tr><td>Run Full Training Workflow</td><td>Checks Drive, pulls input/model files, runs setup, cleans images, captions images, creates the ai-toolkit file, trains, exports LoRAs, and pushes LoRAs to Drive.</td><td>Use when you want the whole training path from Drive input to Drive output.</td></tr>
+          <tr><td>Pull Drive Assets</td><td><code>drive_sync.py check</code>, then pull <code>input</code>, <code>flux</code>, and <code>venv</code>.</td><td>Use when the instance needs training images or model files from Drive.</td></tr>
+          <tr><td>Run Setup</td><td><code>bash setup.sh --no-sync</code>.</td><td>Use to install Python packages, PyTorch, and ai-toolkit without copying Drive files.</td></tr>
+          <tr><td>Post-Setup FA2</td><td><code>python3 post-setup.py --max-jobs 3</code>.</td><td>Optional. Use only if you want to compile Flash Attention for captioning.</td></tr>
+          <tr><td>Preprocess + Caption + Train</td><td><code>python3 run_pipeline.py</code>.</td><td>Use after setup and input files are ready.</td></tr>
+          <tr><td>Export LoRAs</td><td><code>python3 export_loras.py</code>.</td><td>Use after training if you want to collect LoRA files into the Drive export folder.</td></tr>
+          <tr><td>Push LoRAs</td><td><code>python3 drive_sync.py push --profile training --only loras</code>.</td><td>Use to upload exported LoRAs to Drive.</td></tr>
+          <tr><td>Promote LoRAs</td><td><code>python3 drive_sync.py promote-loras</code>.</td><td>Use to copy trained LoRAs from Drive output into the Drive folder that ComfyUI pulls from.</td></tr>
+        </tbody>
+      </table>
+
+      <h3>ComfyUI Buttons</h3>
+      <table>
+        <thead>
+          <tr><th>Button</th><th>What it runs</th><th>When to use it</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Pull Comfy Models</td><td>Checks Drive, then pulls <code>unet</code>, <code>clip</code>, <code>vae</code>, and <code>loras</code>.</td><td>Use on a ComfyUI instance before generating images.</td></tr>
+          <tr><td>Pull FLUX Diffusers</td><td>Pulls the full <code>FLUX.1-dev</code> diffusers folder.</td><td>Use only when the ComfyUI instance also needs the diffusers model folder.</td></tr>
+          <tr><td>Verify Folders</td><td>Checks local ComfyUI model folders for files.</td><td>Use when ComfyUI cannot see a model.</td></tr>
+          <tr><td>Push Renders</td><td>Copies <code>/home/ubuntu/ComfyUI/output</code> to Drive <code>output/images</code>.</td><td>Use after generating images in ComfyUI.</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2>Full Training Path</h2>
+      <p>This is what the training workflow does, in order.</p>
+      <div class="pipeline">
+        <div class="stage"><strong>1</strong>Setup machine</div>
+        <div class="stage"><strong>2</strong>Copy input files</div>
+        <div class="stage"><strong>3</strong>Clean images</div>
+        <div class="stage"><strong>4</strong>Caption images</div>
       </div>
-      <div class="callout ok">
-        <strong>Use one of:</strong><br>
-        <code>bash setup.sh</code> &nbsp;·&nbsp; <code>./setup.sh</code> (after <code>chmod +x setup.sh</code>)<br>
-        If you accidentally run <code>sh setup.sh</code>, current <code>setup.sh</code> re-executes itself under Bash automatically.
+      <div class="pipeline">
+        <div class="stage"><strong>5</strong>Create train file</div>
+        <div class="stage"><strong>6</strong>Train LoRA</div>
+        <div class="stage"><strong>7</strong>Export LoRA</div>
+        <div class="stage"><strong>8</strong>Upload LoRA</div>
       </div>
-    </section>
-
-    <section>
-      <h2>Stage 1 — Environment setup (<code>setup.sh</code>)</h2>
-      <p>Idempotent provisioner: creates <code>.venv</code>, installs PyTorch for CUDA 12.8, pipeline requirements, clones or updates <a href="https://github.com/ostris/ai-toolkit">ostris/ai-toolkit</a> into <code>~/ai-toolkit</code>, then installs <code>~/ai-toolkit/requirements.txt</code> (includes <code>python-dotenv</code>, diffusers, and other training deps).</p>
-      <pre><code>bash setup.sh
-source .venv/bin/activate</code></pre>
-      <p>Re-running setup is safe: existing venv and ai-toolkit repo are updated, not duplicated. The ai-toolkit dependency step can take several minutes.</p>
-    </section>
-
-    <section>
-      <h2>Stage 2 — Dataset preprocessing (<code>preprocess.py</code>)</h2>
-      <p>
-        Reads curated images from <code>paths.input_dir</code> (Drive <code>thunder_compute/input/</code>), crops to 768×1152 portrait (2:3), applies face-aware centering
-        (15% downward shift when a face is detected), rejects blurry frames, and removes near-duplicates.
-        Outputs numbered JPEGs: <code>img_00001.jpg</code>, etc.
-      </p>
-      <pre><code>python3 preprocess.py</code></pre>
-      <p>Settings: <code>paths.input_dir</code>, <code>paths.dataset_dir</code>, <code>preprocess.blur_threshold</code>, <code>preprocess.hash_threshold</code> in <code>pipeline.yaml</code>. Optional legacy fallback: <code>paths.raw_zip</code>.</p>
-    </section>
-
-    <section>
-      <h2>Stage 3 — Captioning</h2>
-      <p>
-        Default: <code>batch_caption.py</code> (set <code>caption.backend: batch</code> in <code>pipeline.yaml</code>).
-        Uses <a href="https://huggingface.co/fancyfeast/llama-joycaption-alpha-two-hf-llava">JoyCaption Alpha Two</a>
-        with batched inference. <code>caption.attn: auto</code> uses SDPA without flash-attn; FA2 is optional via <code>post-setup.py</code>.
-      </p>
-      <pre><code>python3 batch_caption.py
-# or: python3 run_pipeline.py --only caption</code></pre>
-      <p>Sequential fallback: <code>caption.backend: sequential</code> → <code>caption.py</code>.</p>
-      <p>Optional FA2: <code>python3 post-setup.py --max-jobs 3</code> (or install wheel from Drive <code>venv/wheels/</code>).</p>
-    </section>
-
-    <section>
-      <h2>Google Drive sync (<code>drive_sync.py</code>)</h2>
-      <p>
-        Sync scope: <code>artificial_generation/image/thunder_compute/</code> on Drive only.
-        <code>archive/</code> is never touched by scripts.
-      </p>
-      <pre><code>rclone config
-bash setup.sh --sync-drive
-python3 drive_sync.py pull --profile training --only flux
+      <p>The same path as commands:</p>
+      <pre><code>bash setup.sh --sync-drive
+source .venv/bin/activate
+python3 run_pipeline.py --from preprocess
 python3 export_loras.py
 python3 drive_sync.py push --profile training --only loras
 python3 drive_sync.py promote-loras</code></pre>
-      <p><strong>Training instance:</strong> pull <code>input/</code>, <code>models/FLUX.1-dev/</code>, <code>venv/</code> → push <code>output/loras/</code>.</p>
-      <p><strong>ComfyUI instance:</strong> <code>bash setup_comfy.sh</code> → pull <code>models/{unet,clip,vae,loras}</code> → push <code>output/images/</code>.</p>
-      <p>Handoff: trained LoRAs go to <code>output/loras/</code>; curate into <code>models/loras/</code> for Comfy (manual or <code>promote-loras</code>).</p>
+      <p>
+        If you already copied files and only want to run the image cleanup, captioning, config creation, and training:
+      </p>
+      <pre><code>source .venv/bin/activate
+python3 run_pipeline.py --from preprocess</code></pre>
     </section>
 
     <section>
-      <h2>Stage 4 — Training config (<code>generate_config.py</code>)</h2>
+      <h2>Configuration File: pipeline.yaml</h2>
+      <p>Create it from the example file:</p>
+      <pre><code>cp pipeline.example.yaml pipeline.yaml
+nano pipeline.yaml</code></pre>
       <p>
-        Writes an ai-toolkit YAML config: LoRA rank/alpha 16, <code>adamw8bit</code>, learning rate <code>1e-4</code>,
-        bf16 training, float16 saves, <code>quantize: true</code>, portrait buckets <code>[768, 1152]</code>.
+        <code>pipeline.yaml</code> is ignored by Git. That means your local token and paths should not be committed.
       </p>
-      <pre><code>python3 generate_config.py</code></pre>
 
-      <h3>Model reference (<code>model.name_or_path</code>)</h3>
+      <h3>huggingface</h3>
+      <table>
+        <thead><tr><th>Key</th><th>Meaning</th></tr></thead>
+        <tbody>
+          <tr><td><code>token</code></td><td>Your Hugging Face token. You can leave it empty and use an environment variable instead.</td></tr>
+          <tr><td><code>token_env</code></td><td>Name of the environment variable to read if <code>token</code> is empty. Default: <code>HF_TOKEN</code>.</td></tr>
+          <tr><td><code>flux_local_dir</code></td><td>Local folder for the FLUX.1-dev diffusers model. Default: <code>/home/ubuntu/FLUX.1-dev</code>.</td></tr>
+          <tr><td><code>hub_offline_during_train</code></td><td>If true, training is told not to contact Hugging Face once local files are expected to exist.</td></tr>
+        </tbody>
+      </table>
+
+      <h3>project</h3>
+      <table>
+        <thead><tr><th>Key</th><th>Meaning</th></tr></thead>
+        <tbody>
+          <tr><td><code>trigger_word</code></td><td>The word added to each caption so the LoRA can learn the subject name or concept.</td></tr>
+        </tbody>
+      </table>
+
+      <h3>paths</h3>
+      <table>
+        <thead><tr><th>Key</th><th>Meaning</th></tr></thead>
+        <tbody>
+          <tr><td><code>input_dir</code></td><td>Folder of original images. Drive pulls put images in <code>/home/ubuntu/drive_sync/input</code>.</td></tr>
+          <tr><td><code>raw_zip</code></td><td>Optional old-style zip file input. Use this only if you want to process a zip instead of a folder.</td></tr>
+          <tr><td><code>dataset_dir</code></td><td>Where cleaned images and captions are written.</td></tr>
+          <tr><td><code>training_output_dir</code></td><td>Where ai-toolkit writes training results.</td></tr>
+          <tr><td><code>ai_toolkit_config_out</code></td><td>Where <code>generate_config.py</code> writes the training file used by ai-toolkit.</td></tr>
+        </tbody>
+      </table>
+
+      <h3>preprocess</h3>
+      <table>
+        <thead><tr><th>Key</th><th>Meaning</th></tr></thead>
+        <tbody>
+          <tr><td><code>blur_threshold</code></td><td>Higher values reject more blurry images. Lower it if too many images are rejected.</td></tr>
+          <tr><td><code>hash_threshold</code></td><td>Controls duplicate detection. Raise it if images that look different are treated as duplicates.</td></tr>
+        </tbody>
+      </table>
+
+      <h3>caption</h3>
+      <table>
+        <thead><tr><th>Key</th><th>Meaning</th></tr></thead>
+        <tbody>
+          <tr><td><code>backend</code></td><td><code>batch</code> uses <code>batch_caption.py</code>. <code>sequential</code> uses <code>caption.py</code>.</td></tr>
+          <tr><td><code>attn</code></td><td><code>auto</code> chooses Flash Attention if available, otherwise uses the normal PyTorch attention path. <code>sdpa</code> avoids Flash Attention.</td></tr>
+          <tr><td><code>batch_size</code></td><td>How many images to caption at once on the GPU.</td></tr>
+          <tr><td><code>num_workers</code></td><td>How many CPU workers load and resize images for captioning.</td></tr>
+          <tr><td><code>prefetch_factor</code></td><td>How many image batches each worker prepares ahead of time.</td></tr>
+          <tr><td><code>overwrite</code></td><td>If false, images that already have a matching <code>.txt</code> caption file are skipped.</td></tr>
+          <tr><td><code>max_new_tokens</code></td><td>Maximum length of each generated caption.</td></tr>
+        </tbody>
+      </table>
+
+      <h3>drive</h3>
+      <table>
+        <thead><tr><th>Key</th><th>Meaning</th></tr></thead>
+        <tbody>
+          <tr><td><code>rclone_remote</code></td><td>Name of the rclone Google Drive remote. Default: <code>gdrive</code>.</td></tr>
+          <tr><td><code>export_loras_dir</code></td><td>Where <code>export_loras.py</code> copies LoRA files before upload.</td></tr>
+          <tr><td><code>comfy_output_dir</code></td><td>Where ComfyUI rendered images are expected.</td></tr>
+        </tbody>
+      </table>
+
+      <h3>training</h3>
+      <table>
+        <thead><tr><th>Key</th><th>Meaning</th></tr></thead>
+        <tbody>
+          <tr><td><code>job_name</code></td><td>Name used inside the generated ai-toolkit training file.</td></tr>
+          <tr><td><code>steps</code></td><td>How many training steps to run.</td></tr>
+          <tr><td><code>model_id</code></td><td>FLUX.1-dev model source. Use a local diffusers folder or a Hugging Face model name.</td></tr>
+        </tbody>
+      </table>
+
+      <h3>instance</h3>
+      <table>
+        <thead><tr><th>Key</th><th>Meaning</th></tr></thead>
+        <tbody>
+          <tr><td><code>profile</code></td><td>Hardware preset. Examples: <code>best</code>, <code>a100_80gb_8c64g</code>, <code>h100_80gb_16c128g</code>.</td></tr>
+          <tr><td><code>quantize</code></td><td>Uses less VRAM when true, usually slower. Full-size A100/H100 presets normally use false.</td></tr>
+          <tr><td><code>gradient_checkpointing</code></td><td>Uses less VRAM when true, usually slower.</td></tr>
+          <tr><td><code>low_vram</code></td><td>Extra low-memory behavior for smaller cards.</td></tr>
+        </tbody>
+      </table>
+
+      <h3>runtime</h3>
+      <table>
+        <thead><tr><th>Key</th><th>Meaning</th></tr></thead>
+        <tbody>
+          <tr><td><code>disable_otel</code></td><td>Turns off OpenTelemetry environment variables used by some packages.</td></tr>
+          <tr><td><code>wandb_mode</code></td><td>Default is <code>disabled</code>, so Weights &amp; Biases logging is off.</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2>Hardware Presets</h2>
       <p>
-        ai-toolkit loads FLUX as a <strong>diffusers tree</strong> (folders for <code>transformer</code>, <code>vae</code>,
-        <code>text_encoder</code>, etc.). A single ComfyUI <code>flux1-dev.safetensors</code> file cannot be used as
-        <code>name_or_path</code>.
+        The TUI and <code>run_pipeline.py --hardware-preset</code> can write a preset into <code>pipeline.yaml</code>.
+        The suggested preset is <code>best</code>, which means one H100 80GB with 16 vCPU and 128GB RAM.
       </p>
-      <p><code>generate_config.py</code> picks, in order:</p>
+      <table>
+        <thead>
+          <tr><th>Family</th><th>Available presets</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>RTX A6000 48GB</td><td><code>rtx_a6000_48gb_4c32g</code>, <code>rtx_a6000_48gb_8c64g</code></td></tr>
+          <tr><td>1x A100 80GB</td><td><code>a100_80gb_4c32g</code>, <code>a100_80gb_8c64g</code>, <code>a100_80gb_12c96g</code></td></tr>
+          <tr><td>2x A100 80GB</td><td><code>a100_2x_80gb_8c64g</code>, <code>a100_2x_80gb_12c96g</code>, <code>a100_2x_80gb_16c128g</code>, <code>a100_2x_80gb_20c160g</code>, <code>a100_2x_80gb_24c192g</code>, <code>a100_2x_80gb_60c480g</code></td></tr>
+          <tr><td>1x H100 80GB</td><td><code>h100_80gb_4c32g</code>, <code>h100_80gb_8c64g</code>, <code>h100_80gb_12c96g</code>, <code>h100_80gb_16c128g</code>, <code>best</code></td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2>Script Reference</h2>
+      <h3>tui.sh</h3>
+      <p><code>tui.sh</code> is the easiest entry point. It opens the project menu.</p>
+      <pre><code>bash tui.sh</code></pre>
+      <p>It calls <code>start.sh</code>.</p>
+
+      <h3>start.sh</h3>
+      <p><code>start.sh</code> prepares enough Python packages to show the project menu.</p>
+      <p>It does these things:</p>
       <ol>
-        <li><code>training.model_id</code> in <code>pipeline.yaml</code> if set</li>
-        <li>Local diffusers folder: <code>/home/ubuntu/FLUX.1-dev</code> or cached HF snapshot</li>
-        <li>Otherwise <code>black-forest-labs/FLUX.1-dev</code> (downloads from Hugging Face on first train)</li>
+        <li>Installs <code>rclone</code> with <code>apt</code> if it is missing.</li>
+        <li>Warns if the Google Drive remote is not configured.</li>
+        <li>Creates <code>.venv</code> if it does not exist.</li>
+        <li>Installs <code>textual</code> and <code>PyYAML</code> if the menu needs them.</li>
+        <li>Starts <code>pipeline_tui.py</code>.</li>
       </ol>
-      <p>Download the full model locally (recommended if HF hub is slow or gated):</p>
+      <p>It does not install PyTorch, clone ai-toolkit, or start training.</p>
+
+      <h3>setup.sh</h3>
+      <p><code>setup.sh</code> prepares the machine for training.</p>
+      <pre><code>bash setup.sh
+bash setup.sh --sync-drive
+bash setup.sh --no-sync</code></pre>
+      <p>It does these things:</p>
+      <ol>
+        <li>Creates <code>pipeline.yaml</code> from <code>pipeline.example.yaml</code> if missing.</li>
+        <li>Creates <code>.venv</code> if missing.</li>
+        <li>Installs PyTorch for CUDA 12.8.</li>
+        <li>Installs this repo's Python packages.</li>
+        <li>Clones or updates <code>~/ai-toolkit</code> to a fixed commit.</li>
+        <li>Installs ai-toolkit Python packages.</li>
+        <li>Patches one ai-toolkit environment variable warning.</li>
+        <li>If <code>--sync-drive</code> is used, checks Google Drive and pulls training input, FLUX files, and optional wheel files.</li>
+      </ol>
+      <p>Run it again when packages are broken or when a new instance has no training environment yet.</p>
+
+      <h3>drive_sync.py</h3>
+      <p><code>drive_sync.py</code> copies files between Google Drive and the instance.</p>
+      <pre><code>python3 drive_sync.py check
+python3 drive_sync.py status --profile training
+python3 drive_sync.py pull --profile training --only input,flux,venv
+python3 drive_sync.py push --profile training --only loras
+python3 drive_sync.py promote-loras
+python3 drive_sync.py pull --profile comfyui
+python3 drive_sync.py push --profile comfyui --only images</code></pre>
+      <p>It reads <code>drive.manifest.yaml</code>. It does not read every Drive path from <code>pipeline.yaml</code>.</p>
+
+      <h3>preprocess.py</h3>
+      <p><code>preprocess.py</code> turns original images into training-ready images.</p>
+      <pre><code>python3 preprocess.py</code></pre>
+      <p>It does these things:</p>
+      <ol>
+        <li>Looks for images in <code>paths.input_dir</code>.</li>
+        <li>If that folder is not available, it can use <code>paths.raw_zip</code>.</li>
+        <li>Finds common image types such as jpg, png, webp, bmp, tif, and tiff.</li>
+        <li>Crops images to portrait shape, 768 by 1152.</li>
+        <li>Tries to keep faces placed well in the crop.</li>
+        <li>Rejects images that are too blurry.</li>
+        <li>Rejects near-duplicate images.</li>
+        <li>Writes files named like <code>img_00001.jpg</code> into <code>paths.dataset_dir</code>.</li>
+      </ol>
+      <p>Change blur and duplicate behavior in <code>pipeline.yaml</code>, not with command-line flags.</p>
+
+      <h3>batch_caption.py</h3>
+      <p><code>batch_caption.py</code> creates captions for many images at a time on the GPU.</p>
+      <pre><code>python3 batch_caption.py
+python3 batch_caption.py --attn sdpa
+python3 batch_caption.py --batch_size 32</code></pre>
+      <p>It does these things:</p>
+      <ol>
+        <li>Reads cleaned images from <code>paths.dataset_dir</code>.</li>
+        <li>Skips images that already have a matching <code>.txt</code> file unless overwrite is enabled.</li>
+        <li>Loads JoyCaption Alpha Two.</li>
+        <li>Creates captions in batches.</li>
+        <li>Writes one <code>.txt</code> caption beside each image.</li>
+        <li>Adds your <code>project.trigger_word</code> to the start of each caption.</li>
+      </ol>
+
+      <h3>caption.py</h3>
+      <p><code>caption.py</code> is the slower caption fallback. It captions one image at a time.</p>
+      <p>Use it by setting this in <code>pipeline.yaml</code>:</p>
+      <pre><code>caption:
+  backend: sequential</code></pre>
+
+      <h3>post-setup.py</h3>
+      <p><code>post-setup.py</code> is optional. It tries to install Flash Attention for faster captioning.</p>
+      <pre><code>python3 post-setup.py --max-jobs 3
+python3 post-setup.py --low-memory
+python3 post-setup.py --skip-flash-attn</code></pre>
+      <p>If it takes too long or fails, set this and keep going:</p>
+      <pre><code>caption:
+  attn: sdpa</code></pre>
+
+      <h3>generate_config.py</h3>
+      <p><code>generate_config.py</code> writes the training file used by ai-toolkit.</p>
+      <pre><code>python3 generate_config.py</code></pre>
+      <p>It checks the cleaned dataset folder, chooses the model path, writes LoRA settings, and saves the file at <code>paths.ai_toolkit_config_out</code>.</p>
+
+      <h3>train.sh</h3>
+      <p><code>train.sh</code> starts ai-toolkit training.</p>
+      <pre><code>bash train.sh
+bash train.sh /path/to/ai-toolkit-config.yaml --config pipeline.yaml</code></pre>
+      <p>It activates the project environment, applies settings from <code>pipeline.yaml</code>, enters <code>~/ai-toolkit</code>, and runs ai-toolkit.</p>
+
+      <h3>export_loras.py</h3>
+      <p><code>export_loras.py</code> gathers trained LoRA files so they can be uploaded.</p>
+      <pre><code>python3 export_loras.py
+python3 export_loras.py --export-dir /home/ubuntu/export/loras</code></pre>
+      <p>It searches <code>paths.training_output_dir</code> for <code>.safetensors</code> files and copies them to <code>drive.export_loras_dir</code>.</p>
+
+      <h3>setup_comfy.sh</h3>
+      <p><code>setup_comfy.sh</code> is for a ComfyUI instance, not a training instance.</p>
+      <pre><code>bash setup_comfy.sh
+bash setup_comfy.sh --sync-only</code></pre>
+      <p>It installs <code>rclone</code> if needed, checks Drive, pulls ComfyUI model folders, and warns if expected folders are empty.</p>
+
+      <h3>run_pipeline.py</h3>
+      <p><code>run_pipeline.py</code> runs training stages without the menu.</p>
+      <pre><code>python3 run_pipeline.py
+python3 run_pipeline.py --from caption
+python3 run_pipeline.py --only caption,generate_config,train
+python3 run_pipeline.py --best
+python3 run_pipeline.py --hardware-preset a100_80gb_8c64g</code></pre>
+      <p>It runs these stages in order: preprocess, caption, generate config, train.</p>
+      <p>It does not export LoRAs and does not push anything to Drive.</p>
+    </section>
+
+    <section>
+      <h2>What Happens Inside Each Training Stage</h2>
+      <h3>1. Setup</h3>
+      <p>The machine gets Python packages, PyTorch, and ai-toolkit. No captions are created here. No training happens here.</p>
+
+      <h3>2. Pull Files From Drive</h3>
+      <p>Training input images and model folders are copied from Google Drive to the instance. Existing folders are normally skipped so the same copy does not happen again.</p>
+
+      <h3>3. Preprocess Images</h3>
+      <p>Original images are opened, cropped, filtered, and saved as clean training images.</p>
+
+      <h3>4. Caption Images</h3>
+      <p>Each clean image gets a text file beside it. The text file is what the trainer reads along with the image.</p>
+
+      <h3>5. Create Training File</h3>
+      <p>The repo creates an ai-toolkit YAML file. This file tells ai-toolkit where the dataset is, where to save output, what model to use, and what training settings to use.</p>
+
+      <h3>6. Train</h3>
+      <p>ai-toolkit reads the generated YAML file and trains the LoRA. Output is written under <code>paths.training_output_dir</code>.</p>
+
+      <h3>7. Export</h3>
+      <p>The repo copies LoRA files from the training output folder into a smaller export folder.</p>
+
+      <h3>8. Push To Drive</h3>
+      <p>The export folder is copied to Google Drive under <code>output/loras</code>.</p>
+
+      <h3>9. Promote For ComfyUI</h3>
+      <p>LoRAs in Drive <code>output/loras</code> are copied to Drive <code>models/loras</code>. ComfyUI instances pull from <code>models/loras</code>.</p>
+    </section>
+
+    <section>
+      <h2>Model Files</h2>
+      <p>
+        Training needs FLUX.1-dev as a diffusers folder. A diffusers folder contains subfolders such as
+        <code>transformer</code>, <code>vae</code>, and text encoder folders.
+      </p>
+      <p>
+        A single file such as <code>flux1-dev.safetensors</code> is useful for ComfyUI, but it is not the correct
+        training input for ai-toolkit in this repo.
+      </p>
+      <p>To download the full model with the Hugging Face CLI:</p>
       <pre><code>hf auth login
 hf download black-forest-labs/FLUX.1-dev --local-dir /home/ubuntu/FLUX.1-dev</code></pre>
-      <p>Use the <code>hf</code> CLI (not the removed <code>huggingface-cli</code>). Install or upgrade with <code>pip install -U huggingface_hub</code>.</p>
-      <p>Then regenerate the config so <code>name_or_path</code> points at <code>/home/ubuntu/FLUX.1-dev</code>.</p>
-
-      <p>Settings: <code>paths.*</code>, <code>project.trigger_word</code>, <code>training.job_name</code>, <code>training.steps</code>, <code>training.model_id</code>.</p>
+      <p>Then set this in <code>pipeline.yaml</code>:</p>
+      <pre><code>training:
+  model_id: /home/ubuntu/FLUX.1-dev</code></pre>
     </section>
 
     <section>
-      <h2>Stage 5 — Run training (ai-toolkit)</h2>
-      <p>After config generation, start training with the project wrapper (sets current HF download env vars):</p>
-      <pre><code>bash train.sh</code></pre>
-      <p>Reads <code>paths.ai_toolkit_config_out</code> and runtime env from <code>pipeline.yaml</code>. Optional: <code>bash train.sh /path/to/other.yaml --config pipeline.yaml</code></p>
-      <p>
-        Checkpoints and samples are written under the <code>training_folder</code> you passed to
-        <code>generate_config.py</code> (e.g. <code>/home/ubuntu/training_run_01</code>).
-        Edit the YAML to change steps, sample prompts, or save frequency before re-running.
-      </p>
-    </section>
-
-    <section>
-      <h2>Why is network upload high during training?</h2>
-      <p>
-        Your generated config already sets <code>push_to_hub: false</code> and
-        <code>logging.use_wandb: false</code>. Gemini’s guesses about Weights &amp; Biases or
-        automatic Hugging Face checkpoint pushes are <strong>not</strong> enabled by default in this pipeline.
-      </p>
-      <p>Typical causes of sustained upload on Thunder/cloud instances:</p>
-      <ol>
-        <li>
-          <strong>Hugging Face model fetch (most common early on)</strong> — if
-          <code>name_or_path</code> is <code>black-forest-labs/FLUX.1-dev</code>, the hub client
-          (especially with Xet / <code>HF_XET_HIGH_PERFORMANCE</code>) can show large
-          <em>upload</em> counters while syncing chunks, not only download.
-        </li>
-        <li>
-          <strong>Latent caching</strong> — <code>cache_latents_to_disk: true</code> writes
-          <code>.safetensors</code> sidecars under your dataset folder. On network-backed home
-          disks, btop may count those writes as outbound traffic.
-        </li>
-        <li>
-          <strong>Checkpoint / sample saves</strong> — every 250 steps, LoRA weights and preview
-          images are written under <code>training_folder</code> (local disk I/O, or network storage).
-        </li>
-      </ol>
-      <p>Confirm what your config actually has:</p>
-      <pre><code>grep -E 'push_to_hub|use_wandb|name_or_path|cache_latents' \
-  ~/ai-toolkit/config/flux_lora_v1.yaml</code></pre>
-      <p>See which remote hosts Python is talking to:</p>
-      <pre><code>ss -tpn | grep python</code></pre>
-      <p>After FLUX is fully local, reduce hub traffic:</p>
-      <pre><code>export HF_HUB_OFFLINE=1
-export WANDB_MODE=disabled
-bash train.sh ~/ai-toolkit/config/flux_lora_v1.yaml</code></pre>
-      <p>Use a local diffusers tree (<code>/home/ubuntu/FLUX.1-dev</code>) instead of the HF repo id when generating config.</p>
-    </section>
-
-    <section>
-      <h2>Project files</h2>
-      <div class="files">
-        <div>tui.sh <span>— explicit TUI launcher; calls start.sh</span></div>
-        <div>setup.sh <span>— Environment + optional --sync-drive</span></div>
-        <div>start.sh <span>— TUI launcher</span></div>
-        <div>pipeline_tui.py <span>— single entry point for training vs Comfy workflows</span></div>
-        <div>setup_comfy.sh <span>— Comfy instance: pull models from Drive</span></div>
-        <div>drive_sync.py <span>— rclone pull/push thunder_compute/</span></div>
-        <div>drive.manifest.yaml <span>— Drive path mapping</span></div>
-        <div>batch_caption.py <span>— Batched JoyCaption (default)</span></div>
-        <div>post-setup.py <span>— Optional flash-attn install</span></div>
-        <div>export_loras.py <span>— Export LoRAs for Drive push</span></div>
-        <div>preprocess.py <span>— Crop, blur filter, deduplication</span></div>
-        <div>caption.py <span>— Sequential JoyCaption</span></div>
-        <div>pipeline.yaml <span>— your editable settings (create from pipeline.example.yaml)</span></div>
-        <div>pipeline_config.py <span>— shared YAML loader</span></div>
-        <div>run_pipeline.py <span>— non-interactive CLI runner for pipeline.yaml stages; not the TUI</span></div>
-        <div>generate_config.py <span>— ai-toolkit YAML synthesizer</span></div>
-        <div>train.sh <span>— training launcher (reads pipeline.yaml)</span></div>
-        <div>SPEC.md <span>— Full technical specification</span></div>
-      </div>
+      <h2>ComfyUI Workflow</h2>
+      <p>This repo does not install ComfyUI. It only copies model files and rendered images for a ComfyUI instance.</p>
+      <p>On a ComfyUI instance:</p>
+      <pre><code>cd ~/thundercompute
+bash setup_comfy.sh</code></pre>
+      <p>This pulls:</p>
+      <ul>
+        <li>Drive <code>models/unet</code> to <code>/home/ubuntu/ComfyUI/models/unet</code></li>
+        <li>Drive <code>models/clip</code> to <code>/home/ubuntu/ComfyUI/models/clip</code></li>
+        <li>Drive <code>models/vae</code> to <code>/home/ubuntu/ComfyUI/models/vae</code></li>
+        <li>Drive <code>models/loras</code> to <code>/home/ubuntu/ComfyUI/models/loras</code></li>
+      </ul>
+      <p>After generating images in ComfyUI, upload them with:</p>
+      <pre><code>python3 drive_sync.py push --profile comfyui --only images</code></pre>
     </section>
 
     <section>
       <h2>Troubleshooting</h2>
       <table>
         <thead>
-          <tr><th>Problem</th><th>What to do</th></tr>
+          <tr><th>What you see</th><th>What it means</th><th>What to do</th></tr>
         </thead>
         <tbody>
-          <tr>
-            <td>Where is the TUI?</td>
-            <td>Run <code>bash tui.sh</code> from the repo root. <code>run_pipeline.py</code> is the non-interactive CLI runner, not the TUI.</td>
-          </tr>
-          <tr>
-            <td><code>BrokenPipeError</code> after setup/caption commands</td>
-            <td>You used shell pipes. Run commands one at a time: <code>bash setup.sh --sync-drive</code>, then <code>source .venv/bin/activate</code>, then <code>python3 run_pipeline.py --from preprocess</code>.</td>
-          </tr>
-          <tr>
-            <td><code>set: Illegal option -o pipefail</code></td>
-            <td>Run <code>bash setup.sh</code>, not <code>sh setup.sh</code></td>
-          </tr>
-          <tr>
-            <td><code>CUDA is required</code> (caption)</td>
-            <td>Run on a GPU instance; confirm <code>nvidia-smi</code> and PyTorch CUDA after setup</td>
-          </tr>
-          <tr>
-            <td><code>flux1-dev.safetensors/transformer</code> or HF connection error</td>
-            <td>Do not set <code>name_or_path</code> to a single <code>.safetensors</code> file. Use <code>black-forest-labs/FLUX.1-dev</code> or download to <code>/home/ubuntu/FLUX.1-dev</code>, then regenerate config</td>
-          </tr>
-          <tr>
-            <td>All images rejected in preprocess</td>
-            <td>Lower <code>--blur-threshold</code> or raise <code>--hash-threshold</code>; check zip contents</td>
-          </tr>
-          <tr>
-            <td><code>No module named 'dotenv'</code> (ai-toolkit)</td>
-            <td>Install training deps: <code>pip install -r ~/ai-toolkit/requirements.txt</code> (or re-run <code>bash setup.sh</code>)</td>
-          </tr>
-          <tr>
-            <td>Module not found for Python scripts</td>
-            <td><code>source .venv/bin/activate</code> after <code>setup.sh</code></td>
-          </tr>
-          <tr>
-            <td>Heavy network upload during training</td>
-            <td>Usually <strong>not</strong> wandb or <code>push_to_hub</code> (both off in generated config). Common causes: Hugging Face Xet traffic while fetching <code>FLUX.1-dev</code>, or latent/checkpoint writes to network-backed disk. Verify with <code>grep -E 'push_to_hub|use_wandb' ~/ai-toolkit/config/flux_lora_v1.yaml</code> and <code>ss -tpn | grep python</code></td>
-          </tr>
-          <tr>
-            <td><code>HF_HUB_ENABLE_HF_TRANSFER</code> FutureWarning</td>
-            <td>Harmless; training still runs. Re-run <code>bash setup.sh</code> to patch <code>~/ai-toolkit/run.py</code>, or use <code>bash train.sh</code></td>
-          </tr>
-          <tr>
-            <td>Captions skipped</td>
-            <td>Existing <code>.txt</code> files are cached; set <code>caption.overwrite: true</code></td>
-          </tr>
-          <tr>
-            <td>flash-attn compile OOM</td>
-            <td><code>python3 post-setup.py --max-jobs 3</code> or use <code>caption.attn: sdpa</code> (no compile)</td>
-          </tr>
-          <tr>
-            <td>rclone / Drive errors</td>
-            <td>Run <code>rclone config</code>; check remote name matches <code>drive.rclone_remote</code> in <code>pipeline.yaml</code></td>
-          </tr>
+          <tr><td>Rclone asks <code>Storage&gt;</code></td><td>You are in Google Drive setup.</td><td>Type <code>drive</code>, or the number shown next to Google Drive.</td></tr>
+          <tr><td>Rclone asks <code>name&gt;</code></td><td>It wants the name of this Drive connection.</td><td>Type <code>gdrive</code>.</td></tr>
+          <tr><td>Google says <code>Access blocked: rclone's request is invalid</code></td><td>The instance is using an old rclone login flow, usually from Ubuntu's old package.</td><td>Press <code>Ctrl+C</code>, run <code>curl -fsSL https://rclone.org/install.sh | sudo bash</code>, then run <code>rclone config</code> again.</td></tr>
+          <tr><td><code>BrokenPipeError</code></td><td>Commands were connected with <code>|</code>.</td><td>Run each command separately.</td></tr>
+          <tr><td><code>CUDA is required</code></td><td>The caption script cannot see a GPU.</td><td>Run on a GPU instance and check <code>nvidia-smi</code>.</td></tr>
+          <tr><td><code>Pipeline config not found</code></td><td><code>pipeline.yaml</code> does not exist.</td><td>Run <code>cp pipeline.example.yaml pipeline.yaml</code>.</td></tr>
+          <tr><td><code>No supported images found</code></td><td>The input folder has no images the script recognizes.</td><td>Check <code>paths.input_dir</code> and the files inside it.</td></tr>
+          <tr><td>All images rejected</td><td>The blur or duplicate filter removed everything.</td><td>Lower <code>preprocess.blur_threshold</code> or raise <code>preprocess.hash_threshold</code> in <code>pipeline.yaml</code>.</td></tr>
+          <tr><td>Captions are skipped</td><td>Caption text files already exist.</td><td>Set <code>caption.overwrite: true</code>.</td></tr>
+          <tr><td>Flash Attention compile is slow</td><td><code>post-setup.py</code> is compiling optional code.</td><td>Stop it and use <code>caption.attn: sdpa</code> if you do not need it.</td></tr>
+          <tr><td>Flash Attention runs out of memory</td><td>Too many compile jobs are running.</td><td>Use <code>python3 post-setup.py --low-memory</code> or skip Flash Attention.</td></tr>
+          <tr><td><code>rclone cannot access remote</code></td><td>Google Drive is not connected or the remote name is wrong.</td><td>Run <code>rclone config</code> and make sure the remote is named <code>gdrive</code>.</td></tr>
+          <tr><td><code>flux1-dev.safetensors/transformer</code></td><td>A single ComfyUI model file was used where a diffusers folder is needed.</td><td>Use <code>/home/ubuntu/FLUX.1-dev</code> or <code>black-forest-labs/FLUX.1-dev</code>.</td></tr>
+          <tr><td><code>No module named dotenv</code></td><td>ai-toolkit packages are missing.</td><td>Run <code>bash setup.sh</code>.</td></tr>
+          <tr><td>Network upload is high during training</td><td>Usually model download traffic, local disk writes counted as network, or checkpoint saves.</td><td>Use a local FLUX folder and check generated config values before assuming external logging is enabled.</td></tr>
         </tbody>
       </table>
     </section>
 
+    <section>
+      <h2>Project Files</h2>
+      <div class="files">
+        <div>tui.sh <span>- simple launcher for the project menu</span></div>
+        <div>start.sh <span>- prepares the small menu environment and opens the menu</span></div>
+        <div>pipeline_tui.py <span>- the project menu code</span></div>
+        <div>setup.sh <span>- prepares the training environment</span></div>
+        <div>setup_comfy.sh <span>- prepares Drive model folders for a ComfyUI instance</span></div>
+        <div>drive_sync.py <span>- copies files between Google Drive and the instance</span></div>
+        <div>drive.manifest.yaml <span>- lists Drive folders and local folders used by drive_sync.py</span></div>
+        <div>pipeline.example.yaml <span>- template for your local pipeline.yaml</span></div>
+        <div>pipeline.yaml <span>- your local settings file, not committed</span></div>
+        <div>pipeline_config.py <span>- shared config reader used by the scripts</span></div>
+        <div>run_pipeline.py <span>- command-line runner for preprocess, caption, config creation, and training</span></div>
+        <div>preprocess.py <span>- cleans and crops training images</span></div>
+        <div>batch_caption.py <span>- fast caption script</span></div>
+        <div>caption.py <span>- slower caption fallback</span></div>
+        <div>post-setup.py <span>- optional Flash Attention installer</span></div>
+        <div>generate_config.py <span>- creates the ai-toolkit training file</span></div>
+        <div>train.sh <span>- starts ai-toolkit training</span></div>
+        <div>export_loras.py <span>- copies trained LoRA files into the export folder</span></div>
+        <div>requirements.txt <span>- Python packages used by this repo</span></div>
+      </div>
+    </section>
+
     <footer>
-      FLUX.1-dev LoRA Training Pipeline · See <code>SPEC.md</code> for implementation details.
+      This README is written as an operating guide. If a command opens an unclear prompt, check the matching section above before continuing.
     </footer>
   </div>
 </body>

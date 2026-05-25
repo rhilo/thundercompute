@@ -14,16 +14,33 @@ for arg in "$@"; do
   esac
 done
 
-install_rclone() {
-  if command -v rclone >/dev/null 2>&1; then
+MIN_RCLONE_VERSION="1.68.0"
+
+rclone_needs_install() {
+  if ! command -v rclone >/dev/null 2>&1; then
     return 0
   fi
-  echo "[setup-comfy] Installing rclone"
+  local version
+  version="$(rclone version | awk 'NR==1 {print $2}' | sed 's/^v//')"
+  if [[ -z "${version}" ]]; then
+    return 0
+  fi
+  [[ "$(printf '%s\n%s\n' "${MIN_RCLONE_VERSION}" "${version}" | sort -V | head -n 1)" != "${MIN_RCLONE_VERSION}" ]]
+}
+
+install_rclone() {
+  if ! rclone_needs_install; then
+    return 0
+  fi
+  echo "[setup-comfy] Installing current rclone (Ubuntu apt can be too old for Google login)"
   if command -v apt-get >/dev/null 2>&1; then
     sudo apt-get update -qq
-    sudo apt-get install -y -qq rclone
+    sudo apt-get install -y -qq curl unzip
+    curl -fsSL https://rclone.org/install.sh | sudo bash
+  elif command -v curl >/dev/null 2>&1; then
+    curl -fsSL https://rclone.org/install.sh | sudo bash
   else
-    echo "[setup-comfy] Error: install rclone manually." >&2
+    echo "[setup-comfy] Error: curl unavailable. Install current rclone manually from https://rclone.org/downloads/" >&2
     exit 1
   fi
 }
