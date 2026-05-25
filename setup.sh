@@ -41,6 +41,45 @@ install_rclone() {
   fi
 }
 
+drive_remote_name() {
+  local remote_name=""
+  if [[ -f "${PIPELINE_CONFIG}" ]]; then
+    remote_name="$(
+      awk -F: '
+        /^[[:space:]]*rclone_remote:/ {
+          value=$2
+          gsub(/^[[:space:]]+|[[:space:]]+$/, "", value)
+          gsub(/^["'\'']|["'\'']$/, "", value)
+          print value
+          exit
+        }
+      ' "${PIPELINE_CONFIG}"
+    )"
+  fi
+  printf '%s\n' "${remote_name:-gdrive}"
+}
+
+ensure_rclone_remote() {
+  local remote_name="$1"
+  if rclone lsd "${remote_name}:" >/dev/null 2>&1; then
+    return 0
+  fi
+
+  echo "[setup] rclone remote '${remote_name}' is not configured or is not accessible."
+  echo "[setup] Starting 'rclone config'. Create a Google Drive remote named '${remote_name}'."
+  rclone config
+
+  if ! rclone lsd "${remote_name}:" >/dev/null 2>&1; then
+    echo "[setup] Error: rclone still cannot access '${remote_name}:'. Re-run 'rclone config' and try again." >&2
+    exit 1
+  fi
+}
+
+if [[ "${SYNC_DRIVE}" -eq 1 ]]; then
+  install_rclone
+  ensure_rclone_remote "$(drive_remote_name)"
+fi
+
 if [[ ! -d "${VENV_DIR}" ]]; then
   echo "[setup] Creating Python virtual environment at ${VENV_DIR}"
   python3 -m venv "${VENV_DIR}"
@@ -123,13 +162,15 @@ patch_ai_toolkit_hf_transfer_env() {
 patch_ai_toolkit_hf_transfer_env
 
 if [[ "${SYNC_DRIVE}" -eq 1 ]]; then
-  install_rclone
   echo "[setup] Pulling training assets from Google Drive (thunder_compute/)"
   python3 drive_sync.py check
   python3 drive_sync.py pull --profile training --only input,flux,venv
 fi
 
 echo "[setup] Environment ready. Activate with: source ${VENV_DIR}/bin/activate"
-echo "[setup] Optional commands (run separately, not with pipes):"
-echo "[setup]   python3 post-setup.py --max-jobs 3"
-echo "[setup]   python3 batch_caption.py --config pipeline.yaml"
+echo "[setup] Interactive TUI: bash tui.sh"
+echo "[setup] CLI commands (run separately, not with pipes):"
+echo "[setup]   source ${VENV_DIR}/bin/activate"
+echo "[setup]   python3 run_pipeline.py --from preprocess"
+echo "[setup] Note: run_pipeline.py is the non-interactive CLI runner, not the TUI."
+echo "[setup] Optional FA2 compile: python3 post-setup.py --max-jobs 3"

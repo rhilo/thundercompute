@@ -49,7 +49,11 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         description="Install Flash Attention 2 into the project venv. Run after bash setup.sh.",
     )
     parser.add_argument("--force", action="store_true", help="Reinstall flash-attn even if importable.")
-    parser.add_argument("--skip-flash-attn", action="store_true", help="Verify only; do not install.")
+    parser.add_argument(
+        "--skip-flash-attn",
+        action="store_true",
+        help="Skip the optional flash-attn install and verification.",
+    )
     parser.add_argument(
         "--max-jobs",
         type=int,
@@ -101,16 +105,6 @@ def install_build_prerequisites() -> None:
         run_pip(["install", *missing])
 
 
-def require_flash_attn_python() -> None:
-    if sys.version_info >= (3, 12):
-        version = f"{sys.version_info.major}.{sys.version_info.minor}"
-        raise PostSetupError(
-            f"flash-attn is not available for Python {version} in this setup. "
-            "This is optional: leave caption.attn as 'auto' or set it to 'sdpa' and run batch_caption.py. "
-            "Use a Python 3.10/3.11 venv only if you specifically need Flash Attention 2."
-        )
-
-
 def build_env(max_jobs: int) -> dict[str, str]:
     env = os.environ.copy()
     env["MAX_JOBS"] = str(max_jobs)
@@ -128,7 +122,12 @@ def try_install_flash_attn_wheel(force: bool) -> bool:
         [sys.executable, "-m", "pip", *pip_args],
         env=os.environ.copy(),
         check=False,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
     )
+    if result.returncode != 0:
+        print("[post-setup] No compatible prebuilt flash-attn wheel found; compiling from source.")
     return result.returncode == 0 and module_available("flash_attn")
 
 
@@ -139,7 +138,6 @@ def install_flash_attn(force: bool, max_jobs: int) -> None:
         print(f"[post-setup] flash-attn already installed ({flash_attn.__version__}); skipping.")
         return
 
-    require_flash_attn_python()
     install_build_prerequisites()
 
     if try_install_flash_attn_wheel(force):
@@ -198,9 +196,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         device_name, cuda_version = require_torch_cuda()
         print(f"[post-setup] GPU: {device_name} (torch CUDA {cuda_version})")
 
-        if not args.skip_flash_attn:
-            install_flash_attn(args.force, max_jobs)
+        if args.skip_flash_attn:
+            print("[post-setup] Skipping optional flash-attn install.")
+            return 0
 
+        install_flash_attn(args.force, max_jobs)
         verify_flash_attn()
         verify_transformers_flash_attention()
 

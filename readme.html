@@ -206,6 +206,19 @@
     </header>
 
     <section>
+      <h2>Start Here</h2>
+      <p>
+        The interactive terminal UI is launched with <code>bash tui.sh</code> or <code>bash start.sh</code>.
+        <code>run_pipeline.py</code> is <strong>not</strong> the TUI; it is the non-interactive CLI runner for scripted stage execution.
+      </p>
+      <pre><code>git clone https://github.com/rhilo/thundercompute
+cd thundercompute
+cp pipeline.example.yaml pipeline.yaml
+nano pipeline.yaml
+bash tui.sh</code></pre>
+    </section>
+
+    <section>
       <h2>Pipeline overview</h2>
       <div class="pipeline">
         <div class="stage"><strong>Stage 1</strong>setup.sh</div>
@@ -214,7 +227,7 @@
         <div class="stage"><strong>Stage 4</strong>generate_config.py</div>
       </div>
       <p>
-        Place all project files in one directory on the instance (for example <code>~/flux-lora-pipeline/</code>).
+        Place all project files in one directory on the instance (for example <code>~/thundercompute/</code>).
         After setup, activate the virtual environment before running any Python step.
       </p>
     </section>
@@ -224,7 +237,7 @@
       <ul>
         <li>Ubuntu GPU instance with CUDA (Thunder Compute recommended)</li>
         <li><code>python3</code> (3.10+), <code>git</code>, and network access for pip and Hugging Face</li>
-        <li>Raw training photos packaged as a <code>.zip</code> archive</li>
+        <li>Raw training photos in Drive <code>artificial_generation/image/thunder_compute/input/</code> or a local folder set as <code>paths.input_dir</code></li>
         <li>FLUX.1-dev in a <strong>diffusers folder</strong> (e.g. <code>/home/ubuntu/FLUX.1-dev</code>) or Hugging Face access to <code>black-forest-labs/FLUX.1-dev</code> (see Stage 4)</li>
         <li>Enough VRAM for JoyCaption inference (caption stage) and ai-toolkit training</li>
       </ul>
@@ -259,15 +272,18 @@ nano pipeline.yaml</code></pre>
 
     <section>
       <h2>Quick start</h2>
-      <p>Copy the project to the instance, then start the TUI. <code>start.sh</code> installs/checks <code>rclone</code>, runs <code>rclone config</code> if the <code>gdrive</code> remote is missing, and creates a minimal venv for Textual if setup has not run yet.</p>
-      <pre><code>cd ~/flux-lora-pipeline
-bash start.sh</code></pre>
+      <p>
+        Start the TUI first. <code>tui.sh</code> calls <code>start.sh</code>, which installs/checks <code>rclone</code>,
+        runs <code>rclone config</code> if the configured remote is missing, and creates a minimal venv for Textual if setup has not run yet.
+      </p>
+      <pre><code>cd ~/thundercompute
+bash tui.sh</code></pre>
       <p>
         The TUI is the default starting point. Choose <strong>Train LoRA</strong> for setup,
         Drive pull, preprocessing, captioning, config generation, training, and LoRA push.
         Choose <strong>Generate Images</strong> for ComfyUI model pulls and render pushes.
       </p>
-      <p>Advanced CLI runs are still available (each reads <code>pipeline.yaml</code>):</p>
+      <p>Advanced CLI runs are still available (each reads <code>pipeline.yaml</code>). Run these separately; do not connect them with <code>|</code> pipes:</p>
       <pre><code>python3 preprocess.py
 python3 batch_caption.py
 python3 generate_config.py
@@ -275,6 +291,7 @@ bash train.sh</code></pre>
       <p>Partial runs:</p>
       <pre><code>python3 run_pipeline.py --only caption,generate_config,train
 python3 run_pipeline.py --from caption</code></pre>
+      <p><code>run_pipeline.py</code> is the scripted pipeline runner. It does not open an interactive UI.</p>
       <p>When you switch GPU instances, edit <code>instance:</code> in <code>pipeline.yaml</code> and re-run <code>python3 generate_config.py</code>:</p>
       <pre><code># A100 80GB — full speed
 instance:
@@ -433,6 +450,7 @@ bash train.sh ~/ai-toolkit/config/flux_lora_v1.yaml</code></pre>
     <section>
       <h2>Project files</h2>
       <div class="files">
+        <div>tui.sh <span>— explicit TUI launcher; calls start.sh</span></div>
         <div>setup.sh <span>— Environment + optional --sync-drive</span></div>
         <div>start.sh <span>— TUI launcher</span></div>
         <div>pipeline_tui.py <span>— single entry point for training vs Comfy workflows</span></div>
@@ -446,7 +464,7 @@ bash train.sh ~/ai-toolkit/config/flux_lora_v1.yaml</code></pre>
         <div>caption.py <span>— Sequential JoyCaption</span></div>
         <div>pipeline.yaml <span>— your editable settings (create from pipeline.example.yaml)</span></div>
         <div>pipeline_config.py <span>— shared YAML loader</span></div>
-        <div>run_pipeline.py <span>— run all stages from pipeline.yaml</span></div>
+        <div>run_pipeline.py <span>— non-interactive CLI runner for pipeline.yaml stages; not the TUI</span></div>
         <div>generate_config.py <span>— ai-toolkit YAML synthesizer</span></div>
         <div>train.sh <span>— training launcher (reads pipeline.yaml)</span></div>
         <div>SPEC.md <span>— Full technical specification</span></div>
@@ -460,6 +478,14 @@ bash train.sh ~/ai-toolkit/config/flux_lora_v1.yaml</code></pre>
           <tr><th>Problem</th><th>What to do</th></tr>
         </thead>
         <tbody>
+          <tr>
+            <td>Where is the TUI?</td>
+            <td>Run <code>bash tui.sh</code> from the repo root. <code>run_pipeline.py</code> is the non-interactive CLI runner, not the TUI.</td>
+          </tr>
+          <tr>
+            <td><code>BrokenPipeError</code> after setup/caption commands</td>
+            <td>You used shell pipes. Run commands one at a time: <code>bash setup.sh --sync-drive</code>, then <code>source .venv/bin/activate</code>, then <code>python3 run_pipeline.py --from preprocess</code>.</td>
+          </tr>
           <tr>
             <td><code>set: Illegal option -o pipefail</code></td>
             <td>Run <code>bash setup.sh</code>, not <code>sh setup.sh</code></td>

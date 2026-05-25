@@ -8,6 +8,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "${SCRIPT_DIR}"
 
 VENV_DIR="${SCRIPT_DIR}/.venv"
+PIPELINE_CONFIG="${SCRIPT_DIR}/pipeline.yaml"
 
 install_rclone() {
   if command -v rclone >/dev/null 2>&1; then
@@ -24,8 +25,27 @@ install_rclone() {
   fi
 }
 
+drive_remote_name() {
+  local remote_name="${RCLONE_REMOTE_NAME:-}"
+  if [[ -z "${remote_name}" && -f "${PIPELINE_CONFIG}" ]]; then
+    remote_name="$(
+      awk -F: '
+        /^[[:space:]]*rclone_remote:/ {
+          value=$2
+          gsub(/^[[:space:]]+|[[:space:]]+$/, "", value)
+          gsub(/^["'\'']|["'\'']$/, "", value)
+          print value
+          exit
+        }
+      ' "${PIPELINE_CONFIG}"
+    )"
+  fi
+  printf '%s\n' "${remote_name:-gdrive}"
+}
+
 ensure_rclone_remote() {
-  local remote_name="${RCLONE_REMOTE_NAME:-gdrive}"
+  local remote_name
+  remote_name="$(drive_remote_name)"
   if rclone listremotes 2>/dev/null | grep -Fxq "${remote_name}:"; then
     return 0
   fi
