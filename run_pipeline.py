@@ -92,7 +92,16 @@ def main(argv: Sequence[str] | None = None) -> int:
             if stage == "preprocess":
                 run_python_stage("preprocess.py", settings)
             elif stage == "caption":
-                run_python_stage("caption.py", settings)
+                script = (
+                    "batch_caption.py"
+                    if settings.caption_backend == "batch"
+                    else "caption.py"
+                )
+                if settings.caption_backend not in ("batch", "sequential"):
+                    raise PipelineConfigError(
+                        "caption.backend must be 'batch' or 'sequential'."
+                    )
+                run_python_stage(script, settings)
             elif stage == "generate_config":
                 run_python_stage("generate_config.py", settings)
             elif stage == "train":

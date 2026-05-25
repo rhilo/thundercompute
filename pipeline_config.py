@@ -44,8 +44,16 @@ class PipelineSettings:
     ai_toolkit_config_out: Path
     blur_threshold: float
     hash_threshold: int
+    caption_backend: str
+    caption_attn: str
+    caption_batch_size: int
+    caption_num_workers: int
+    caption_prefetch_factor: int
     caption_overwrite: bool
     caption_max_new_tokens: int
+    drive_rclone_remote: str
+    drive_export_loras_dir: Path
+    drive_comfy_output_dir: Path
     job_name: str
     training_steps: int
     model_id: str | None
@@ -107,6 +115,10 @@ def load_pipeline_settings(config_path: Path | None = None) -> PipelineSettings:
     if runtime is not None and not isinstance(runtime, dict):
         raise PipelineConfigError("'runtime:' must be a mapping when present.")
 
+    drive = raw.get("drive", {})
+    if drive is not None and not isinstance(drive, dict):
+        raise PipelineConfigError("'drive:' must be a mapping when present.")
+
     trigger_word = str(project.get("trigger_word", "")).strip()
     if not trigger_word:
         raise PipelineConfigError("'project.trigger_word' is required.")
@@ -131,8 +143,20 @@ def load_pipeline_settings(config_path: Path | None = None) -> PipelineSettings:
         ai_toolkit_config_out=Path(str(paths["ai_toolkit_config_out"])).expanduser(),
         blur_threshold=float(preprocess.get("blur_threshold", 80.0)),
         hash_threshold=int(preprocess.get("hash_threshold", 5)),
+        caption_backend=str(caption.get("backend", "batch")).strip().lower(),
+        caption_attn=str(caption.get("attn", "auto")).strip().lower(),
+        caption_batch_size=int(caption.get("batch_size", 32)),
+        caption_num_workers=int(caption.get("num_workers", 6)),
+        caption_prefetch_factor=int(caption.get("prefetch_factor", 2)),
         caption_overwrite=bool(caption.get("overwrite", False)),
         caption_max_new_tokens=int(caption.get("max_new_tokens", 300)),
+        drive_rclone_remote=str((drive or {}).get("rclone_remote", "gdrive")).strip() or "gdrive",
+        drive_export_loras_dir=Path(
+            str((drive or {}).get("export_loras_dir", "/home/ubuntu/export/loras"))
+        ).expanduser(),
+        drive_comfy_output_dir=Path(
+            str((drive or {}).get("comfy_output_dir", "/home/ubuntu/ComfyUI/output"))
+        ).expanduser(),
         job_name=str(training.get("job_name", "flux_lora_v1")).strip(),
         training_steps=int(training.get("steps", 2000)),
         model_id=(

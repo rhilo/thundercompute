@@ -210,7 +210,7 @@
       <div class="pipeline">
         <div class="stage"><strong>Stage 1</strong>setup.sh</div>
         <div class="stage"><strong>Stage 2</strong>preprocess.py</div>
-        <div class="stage"><strong>Stage 3</strong>caption.py</div>
+        <div class="stage"><strong>Stage 3</strong>batch_caption</div>
         <div class="stage"><strong>Stage 4</strong>generate_config.py</div>
       </div>
       <p>
@@ -248,7 +248,8 @@ nano pipeline.yaml</code></pre>
           <tr><td><code>project</code></td><td><code>trigger_word</code></td><td>LoRA trigger token</td></tr>
           <tr><td><code>paths</code></td><td><code>raw_zip</code>, <code>dataset_dir</code>, <code>training_output_dir</code>, <code>ai_toolkit_config_out</code></td><td>All filesystem paths</td></tr>
           <tr><td><code>preprocess</code></td><td><code>blur_threshold</code>, <code>hash_threshold</code></td><td>Dataset cleaning gates</td></tr>
-          <tr><td><code>caption</code></td><td><code>overwrite</code>, <code>max_new_tokens</code></td><td>JoyCaption behaviour</td></tr>
+          <tr><td><code>caption</code></td><td><code>backend</code>, <code>attn</code>, <code>batch_size</code>, <code>overwrite</code></td><td>JoyCaption (<code>batch</code> or <code>sequential</code>)</td></tr>
+          <tr><td><code>drive</code></td><td><code>rclone_remote</code>, <code>export_loras_dir</code></td><td>Google Drive sync (see below)</td></tr>
           <tr><td><code>training</code></td><td><code>job_name</code>, <code>steps</code>, <code>model_id</code></td><td>ai-toolkit <code>model.name_or_path</code> (diffusers dir or HF repo)</td></tr>
           <tr><td><code>instance</code></td><td><code>profile</code>, <code>quantize</code>, <code>gradient_checkpointing</code>, <code>low_vram</code></td><td>GPU tuning when switching machines (e.g. A100 80GB vs 24GB)</td></tr>
           <tr><td><code>runtime</code></td><td><code>disable_otel</code>, <code>wandb_mode</code></td><td>Telemetry / wandb defaults</td></tr>
@@ -258,14 +259,18 @@ nano pipeline.yaml</code></pre>
 
     <section>
       <h2>Quick start</h2>
-      <p>Copy the project to the instance, edit <code>pipeline.yaml</code>, then:</p>
-      <pre><code>cd ~/flux-lora-pipeline
-bash setup.sh
-source .venv/bin/activate
-python3 run_pipeline.py</code></pre>
-      <p>Run individual stages (each reads <code>pipeline.yaml</code>):</p>
+      <p>Copy the project to the instance, configure rclone once, then start the TUI. <code>start.sh</code> creates a minimal venv for Textual if setup has not run yet.</p>
+      <pre><code>rclone config
+cd ~/flux-lora-pipeline
+bash start.sh</code></pre>
+      <p>
+        The TUI is the default starting point. Choose <strong>Train LoRA</strong> for setup,
+        Drive pull, preprocessing, captioning, config generation, training, and LoRA push.
+        Choose <strong>Generate Images</strong> for ComfyUI model pulls and render pushes.
+      </p>
+      <p>Advanced CLI runs are still available (each reads <code>pipeline.yaml</code>):</p>
       <pre><code>python3 preprocess.py
-python3 caption.py
+python3 batch_caption.py
 python3 generate_config.py
 bash train.sh</code></pre>
       <p>Partial runs:</p>
@@ -319,15 +324,33 @@ source .venv/bin/activate</code></pre>
     </section>
 
     <section>
-      <h2>Stage 3 — Captioning (<code>caption.py</code>)</h2>
+      <h2>Stage 3 — Captioning</h2>
       <p>
-        Runs <a href="https://huggingface.co/fancyfeast/llama-joycaption-alpha-two-hf-llava">JoyCaption Alpha Two</a>
-        in bfloat16 on GPU. Writes a <code>.txt</code> file beside each image:
-        <code>trigger_word, descriptive prose...</code>
+        Default: <code>batch_caption.py</code> (set <code>caption.backend: batch</code> in <code>pipeline.yaml</code>).
+        Uses <a href="https://huggingface.co/fancyfeast/llama-joycaption-alpha-two-hf-llava">JoyCaption Alpha Two</a>
+        with batched inference. <code>caption.attn: auto</code> uses SDPA without flash-attn; FA2 is optional via <code>post-setup.py</code>.
       </p>
-      <pre><code>python3 caption.py</code></pre>
-      <p>Settings: <code>paths.dataset_dir</code>, <code>project.trigger_word</code>, <code>caption.overwrite</code>, <code>caption.max_new_tokens</code>.</p>
-      <p>Requires CUDA. First run downloads the model from Hugging Face (may take several minutes).</p>
+      <pre><code>python3 batch_caption.py
+# or: python3 run_pipeline.py --only caption</code></pre>
+      <p>Sequential fallback: <code>caption.backend: sequential</code> → <code>caption.py</code>.</p>
+      <p>Optional FA2: <code>python3 post-setup.py --max-jobs 3</code> (or install wheel from Drive <code>venv/wheels/</code>).</p>
+    </section>
+
+    <section>
+      <h2>Google Drive sync (<code>drive_sync.py</code>)</h2>
+      <p>
+        Sync scope: <code>artificial_generation/image/thunder_compute/</code> on Drive only.
+        <code>archive/</code> is never touched by scripts.
+      </p>
+      <pre><code>rclone config
+bash setup.sh --sync-drive
+python3 drive_sync.py pull --profile training --only flux
+python3 export_loras.py
+python3 drive_sync.py push --profile training --only loras
+python3 drive_sync.py promote-loras</code></pre>
+      <p><strong>Training instance:</strong> pull <code>input/</code>, <code>models/FLUX.1-dev/</code>, <code>venv/</code> → push <code>output/loras/</code>.</p>
+      <p><strong>ComfyUI instance:</strong> <code>bash setup_comfy.sh</code> → pull <code>models/{unet,clip,vae,loras}</code> → push <code>output/images/</code>.</p>
+      <p>Handoff: trained LoRAs go to <code>output/loras/</code>; curate into <code>models/loras/</code> for Comfy (manual or <code>promote-loras</code>).</p>
     </section>
 
     <section>
@@ -411,10 +434,17 @@ bash train.sh ~/ai-toolkit/config/flux_lora_v1.yaml</code></pre>
     <section>
       <h2>Project files</h2>
       <div class="files">
-        <div>setup.sh <span>— Bash environment + ai-toolkit clone</span></div>
-        <div>requirements.txt <span>— Python deps (installed by setup)</span></div>
+        <div>setup.sh <span>— Environment + optional --sync-drive</span></div>
+        <div>start.sh <span>— TUI launcher</span></div>
+        <div>pipeline_tui.py <span>— single entry point for training vs Comfy workflows</span></div>
+        <div>setup_comfy.sh <span>— Comfy instance: pull models from Drive</span></div>
+        <div>drive_sync.py <span>— rclone pull/push thunder_compute/</span></div>
+        <div>drive.manifest.yaml <span>— Drive path mapping</span></div>
+        <div>batch_caption.py <span>— Batched JoyCaption (default)</span></div>
+        <div>post-setup.py <span>— Optional flash-attn install</span></div>
+        <div>export_loras.py <span>— Export LoRAs for Drive push</span></div>
         <div>preprocess.py <span>— Crop, blur filter, deduplication</span></div>
-        <div>caption.py <span>— JoyCaption caption generation</span></div>
+        <div>caption.py <span>— Sequential JoyCaption</span></div>
         <div>pipeline.yaml <span>— your editable settings (create from pipeline.example.yaml)</span></div>
         <div>pipeline_config.py <span>— shared YAML loader</span></div>
         <div>run_pipeline.py <span>— run all stages from pipeline.yaml</span></div>
@@ -465,7 +495,15 @@ bash train.sh ~/ai-toolkit/config/flux_lora_v1.yaml</code></pre>
           </tr>
           <tr>
             <td>Captions skipped</td>
-            <td>Existing <code>.txt</code> files are cached; add <code>--overwrite</code> to regenerate</td>
+            <td>Existing <code>.txt</code> files are cached; set <code>caption.overwrite: true</code></td>
+          </tr>
+          <tr>
+            <td>flash-attn compile OOM</td>
+            <td><code>python3 post-setup.py --max-jobs 3</code> or use <code>caption.attn: sdpa</code> (no compile)</td>
+          </tr>
+          <tr>
+            <td>rclone / Drive errors</td>
+            <td>Run <code>rclone config</code>; check remote name matches <code>drive.rclone_remote</code> in <code>pipeline.yaml</code></td>
           </tr>
         </tbody>
       </table>

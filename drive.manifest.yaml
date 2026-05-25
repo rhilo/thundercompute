@@ -1,0 +1,58 @@
+# Google Drive layout: only artificial_generation/image/thunder_compute (never archive/).
+# Configure rclone remote name (e.g. gdrive) via: rclone config
+
+rclone_remote: gdrive
+drive_root: artificial_generation/image/thunder_compute
+
+profiles:
+  training:
+    pull:
+      - id: input
+        drive: input
+        local: /home/ubuntu/drive_sync/input
+        skip_if_exists: true
+      - id: flux
+        drive: models/FLUX.1-dev
+        local: /home/ubuntu/FLUX.1-dev
+        skip_if_exists: true
+      - id: venv
+        drive: venv
+        local: /home/ubuntu/drive_sync/venv
+        skip_if_exists: true
+        optional: true
+    push:
+      - id: loras
+        local: /home/ubuntu/export/loras
+        drive: output/loras
+      - id: dataset
+        local: /home/ubuntu/dataset/clean_v1
+        drive: input/clean_v1
+        optional: true
+
+  comfyui:
+    pull:
+      - id: flux_diffusers
+        drive: models/FLUX.1-dev
+        local: /home/ubuntu/FLUX.1-dev
+        skip_if_exists: true
+        optional: true
+      - id: unet
+        drive: models/unet
+        local: /home/ubuntu/ComfyUI/models/unet
+        skip_if_exists: true
+      - id: clip
+        drive: models/clip
+        local: /home/ubuntu/ComfyUI/models/clip
+        skip_if_exists: true
+      - id: vae
+        drive: models/vae
+        local: /home/ubuntu/ComfyUI/models/vae
+        skip_if_exists: true
+      - id: loras
+        drive: models/loras
+        local: /home/ubuntu/ComfyUI/models/loras
+        skip_if_exists: true
+    push:
+      - id: images
+        local: /home/ubuntu/ComfyUI/output
+        drive: output/images

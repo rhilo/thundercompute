@@ -22,8 +22,18 @@ preprocess:
   hash_threshold: 5
 
 caption:
+  backend: batch
+  attn: auto
+  batch_size: 64
+  num_workers: 6
+  prefetch_factor: 2
   overwrite: false
   max_new_tokens: 300
+
+drive:
+  rclone_remote: gdrive
+  export_loras_dir: /home/ubuntu/export/loras
+  comfy_output_dir: /home/ubuntu/ComfyUI/output
 
 training:
   job_name: flux_lora_v1

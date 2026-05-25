@@ -2,3 +2,8 @@
 __pycache__/
 *.pyc
 pipeline.yaml
+google_root_folder/
+train_stack_v1/
+example_folder_structure/
+*.zip
+.DS_Store
