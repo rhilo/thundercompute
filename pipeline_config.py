@@ -12,22 +12,57 @@ import yaml
 
 DEFAULT_CONFIG_NAME = "pipeline.yaml"
 
-INSTANCE_PRESETS: dict[str, dict[str, bool]] = {
-    "a100_80gb": {
-        "quantize": False,
-        "gradient_checkpointing": False,
-        "low_vram": False,
-    },
-    "standard_24gb": {
-        "quantize": True,
-        "gradient_checkpointing": True,
-        "low_vram": False,
-    },
-}
-
-
 class PipelineConfigError(Exception):
     """Raised when pipeline.yaml is missing or invalid."""
+
+
+@dataclass(frozen=True)
+class HardwarePreset:
+    label: str
+    accelerator: str
+    gpu_count: int
+    vram_gb: int
+    vcpus: int
+    ram_gb: int
+    quantize: bool = False
+    gradient_checkpointing: bool = False
+    low_vram: bool = False
+    suggested: bool = False
+
+
+THUNDER_HARDWARE_PRESETS: dict[str, HardwarePreset] = {
+    "rtx_a6000_48gb_4c32g": HardwarePreset("RTX A6000 48GB - 4 vCPU / 32GB RAM", "RTX A6000", 1, 48, 4, 32),
+    "rtx_a6000_48gb_8c64g": HardwarePreset("RTX A6000 48GB - 8 vCPU / 64GB RAM", "RTX A6000", 1, 48, 8, 64),
+    "a100_80gb_4c32g": HardwarePreset("1x A100 80GB - 4 vCPU / 32GB RAM", "A100 80GB", 1, 80, 4, 32),
+    "a100_80gb_8c64g": HardwarePreset("1x A100 80GB - 8 vCPU / 64GB RAM", "A100 80GB", 1, 80, 8, 64),
+    "a100_80gb_12c96g": HardwarePreset("1x A100 80GB - 12 vCPU / 96GB RAM", "A100 80GB", 1, 80, 12, 96),
+    "a100_2x_80gb_8c64g": HardwarePreset("2x A100 80GB - 8 vCPU / 64GB RAM", "A100 80GB", 2, 80, 8, 64),
+    "a100_2x_80gb_12c96g": HardwarePreset("2x A100 80GB - 12 vCPU / 96GB RAM", "A100 80GB", 2, 80, 12, 96),
+    "a100_2x_80gb_16c128g": HardwarePreset("2x A100 80GB - 16 vCPU / 128GB RAM", "A100 80GB", 2, 80, 16, 128),
+    "a100_2x_80gb_20c160g": HardwarePreset("2x A100 80GB - 20 vCPU / 160GB RAM", "A100 80GB", 2, 80, 20, 160),
+    "a100_2x_80gb_24c192g": HardwarePreset("2x A100 80GB - 24 vCPU / 192GB RAM", "A100 80GB", 2, 80, 24, 192),
+    "a100_2x_80gb_60c480g": HardwarePreset("2x A100 80GB - 60 vCPU / 480GB RAM", "A100 80GB", 2, 80, 60, 480),
+    "h100_80gb_4c32g": HardwarePreset("1x H100 80GB - 4 vCPU / 32GB RAM", "H100 80GB", 1, 80, 4, 32),
+    "h100_80gb_8c64g": HardwarePreset("1x H100 80GB - 8 vCPU / 64GB RAM", "H100 80GB", 1, 80, 8, 64),
+    "h100_80gb_12c96g": HardwarePreset("1x H100 80GB - 12 vCPU / 96GB RAM", "H100 80GB", 1, 80, 12, 96),
+    "h100_80gb_16c128g": HardwarePreset("1x H100 80GB - 16 vCPU / 128GB RAM", "H100 80GB", 1, 80, 16, 128),
+    "best": HardwarePreset("BEST: 1x H100 80GB - 16 vCPU / 128GB RAM", "H100 80GB", 1, 80, 16, 128, suggested=True),
+}
+
+INSTANCE_PRESETS: dict[str, dict[str, bool]] = {
+    key: {
+        "quantize": preset.quantize,
+        "gradient_checkpointing": preset.gradient_checkpointing,
+        "low_vram": preset.low_vram,
+    }
+    for key, preset in THUNDER_HARDWARE_PRESETS.items()
+}
+INSTANCE_PRESETS.update(
+    {
+        "a100_80gb": {"quantize": False, "gradient_checkpointing": False, "low_vram": False},
+        "standard_24gb": {"quantize": True, "gradient_checkpointing": True, "low_vram": False},
+    }
+)
 
 
 @dataclass(frozen=True)
@@ -71,10 +106,39 @@ def _require_mapping(raw: dict[str, Any], key: str) -> dict[str, Any]:
     return section
 
 
+def _require_key(section: dict[str, Any], section_name: str, key: str) -> Any:
+    if key not in section or section[key] in (None, ""):
+        raise PipelineConfigError(f"Missing required '{section_name}.{key}' in pipeline config.")
+    return section[key]
+
+
 def _resolve_config_path(config_path: Path | None) -> Path:
     if config_path is None:
         return Path(DEFAULT_CONFIG_NAME).resolve()
     return config_path.expanduser().resolve()
+
+
+def write_hardware_preset(config_path: Path | None, preset_key: str) -> Path:
+    if preset_key not in THUNDER_HARDWARE_PRESETS:
+        raise PipelineConfigError(f"Unknown hardware preset: {preset_key}")
+
+    resolved = _resolve_config_path(config_path)
+    if not resolved.is_file():
+        raise PipelineConfigError(f"Pipeline config not found: {resolved}")
+
+    with resolved.open("r", encoding="utf-8") as handle:
+        raw = yaml.safe_load(handle)
+    if not isinstance(raw, dict):
+        raise PipelineConfigError(f"Pipeline config must be a YAML mapping: {resolved}")
+
+    instance = raw.setdefault("instance", {})
+    if not isinstance(instance, dict):
+        raise PipelineConfigError("'instance:' must be a mapping when present.")
+    instance["profile"] = preset_key
+
+    with resolved.open("w", encoding="utf-8") as handle:
+        yaml.safe_dump(raw, handle, sort_keys=False)
+    return resolved
 
 
 def load_pipeline_settings(config_path: Path | None = None) -> PipelineSettings:
@@ -119,7 +183,7 @@ def load_pipeline_settings(config_path: Path | None = None) -> PipelineSettings:
     if drive is not None and not isinstance(drive, dict):
         raise PipelineConfigError("'drive:' must be a mapping when present.")
 
-    trigger_word = str(project.get("trigger_word", "")).strip()
+    trigger_word = str(_require_key(project, "project", "trigger_word")).strip()
     if not trigger_word:
         raise PipelineConfigError("'project.trigger_word' is required.")
 
@@ -137,10 +201,10 @@ def load_pipeline_settings(config_path: Path | None = None) -> PipelineSettings:
         hf_flux_local_dir=hf_flux_local_dir,
         hf_hub_offline=bool(huggingface.get("hub_offline_during_train", True)),
         trigger_word=trigger_word,
-        raw_zip=Path(str(paths["raw_zip"])).expanduser(),
-        dataset_dir=Path(str(paths["dataset_dir"])).expanduser(),
-        training_output_dir=Path(str(paths["training_output_dir"])).expanduser(),
-        ai_toolkit_config_out=Path(str(paths["ai_toolkit_config_out"])).expanduser(),
+        raw_zip=Path(str(_require_key(paths, "paths", "raw_zip"))).expanduser(),
+        dataset_dir=Path(str(_require_key(paths, "paths", "dataset_dir"))).expanduser(),
+        training_output_dir=Path(str(_require_key(paths, "paths", "training_output_dir"))).expanduser(),
+        ai_toolkit_config_out=Path(str(_require_key(paths, "paths", "ai_toolkit_config_out"))).expanduser(),
         blur_threshold=float(preprocess.get("blur_threshold", 80.0)),
         hash_threshold=int(preprocess.get("hash_threshold", 5)),
         caption_backend=str(caption.get("backend", "batch")).strip().lower(),

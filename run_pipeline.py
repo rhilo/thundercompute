@@ -12,9 +12,11 @@ from typing import Sequence
 from pipeline_config import (
     PipelineConfigError,
     PipelineSettings,
+    THUNDER_HARDWARE_PRESETS,
     add_config_argument,
     apply_runtime_env,
     load_pipeline_settings,
+    write_hardware_preset,
 )
 from rich.console import Console
 
@@ -41,6 +43,17 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         default=None,
         choices=STAGES,
         help="Start at this stage and run through the end.",
+    )
+    parser.add_argument(
+        "--hardware-preset",
+        choices=sorted(THUNDER_HARDWARE_PRESETS),
+        default=None,
+        help="Write instance.profile in pipeline.yaml before running.",
+    )
+    parser.add_argument(
+        "--best",
+        action="store_true",
+        help="Use the suggested best hardware preset (1x H100 80GB, 16 vCPU, 128GB RAM).",
     )
     return parser.parse_args(argv)
 
@@ -77,6 +90,13 @@ def run_train_stage(settings: PipelineSettings) -> None:
 def main(argv: Sequence[str] | None = None) -> int:
     args = parse_args(argv)
     try:
+        if args.best and args.hardware_preset:
+            raise PipelineConfigError("Use either --best or --hardware-preset, not both.")
+        if args.best:
+            write_hardware_preset(args.config, "best")
+        elif args.hardware_preset:
+            write_hardware_preset(args.config, args.hardware_preset)
+
         settings = load_pipeline_settings(args.config)
         apply_runtime_env(settings)
         stages = resolve_stage_list(args)
@@ -99,7 +119,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 )
                 if settings.caption_backend not in ("batch", "sequential"):
                     raise PipelineConfigError(
-                        "caption.backend must be 'batch' or 'sequential'."
+                        "caption.backend must be 'batch' (fast default) or "
+                        "'sequential' (caption.py fallback)."
                     )
                 run_python_stage(script, settings)
             elif stage == "generate_config":

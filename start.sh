@@ -16,7 +16,7 @@ fi
 # shellcheck source=/dev/null
 source "${VENV_DIR}/bin/activate"
 
-python - <<'PY' >/dev/null 2>&1 || pip install -q "textual>=0.47.0" "PyYAML>=6.0.1"
+python - <<'PY' >/dev/null 2>&1 || pip install -q "textual==0.47.0" "PyYAML==6.0.1"
 import textual
 import yaml
 PY

@@ -45,7 +45,7 @@ training:
 # GPU instance profile — change when you switch machines, then re-run generate_config.py
 instance:
   # Presets: a100_80gb | standard_24gb  (optional; explicit keys below override preset)
-  profile: a100_80gb
+  profile: best
   quantize: false
   gradient_checkpointing: false
   low_vram: false

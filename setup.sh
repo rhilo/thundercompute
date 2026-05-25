@@ -24,6 +24,7 @@ fi
 
 VENV_DIR="${SCRIPT_DIR}/.venv"
 AI_TOOLKIT_DIR="${HOME}/ai-toolkit"
+AI_TOOLKIT_REF="fbac1cb7f50f86b539f5c56a7847ef8878df012f"
 REQUIREMENTS_FILE="${SCRIPT_DIR}/requirements.txt"
 
 install_rclone() {
@@ -59,15 +60,22 @@ if [[ -f "${REQUIREMENTS_FILE}" ]]; then
   pip install -r "${REQUIREMENTS_FILE}" -q
 fi
 
-if [[ -d "${AI_TOOLKIT_DIR}/.git" ]]; then
-  echo "[setup] Updating existing ai-toolkit checkout"
-  git -C "${AI_TOOLKIT_DIR}" pull --ff-only
+sync_ai_toolkit_checkout() {
+  if [[ -d "${AI_TOOLKIT_DIR}/.git" ]]; then
+    echo "[setup] Updating pinned ai-toolkit checkout (${AI_TOOLKIT_REF})"
+    git -C "${AI_TOOLKIT_DIR}" fetch origin --tags
+  else
+    echo "[setup] Cloning ai-toolkit into ${AI_TOOLKIT_DIR}"
+    git clone https://github.com/ostris/ai-toolkit.git "${AI_TOOLKIT_DIR}"
+    git -C "${AI_TOOLKIT_DIR}" fetch origin --tags
+  fi
+
+  git -C "${AI_TOOLKIT_DIR}" checkout --detach "${AI_TOOLKIT_REF}"
+  git -C "${AI_TOOLKIT_DIR}" submodule sync --recursive
   git -C "${AI_TOOLKIT_DIR}" submodule update --init --recursive
-else
-  echo "[setup] Cloning ai-toolkit into ${AI_TOOLKIT_DIR}"
-  git clone https://github.com/ostris/ai-toolkit.git "${AI_TOOLKIT_DIR}"
-  git -C "${AI_TOOLKIT_DIR}" submodule update --init --recursive
-fi
+}
+
+sync_ai_toolkit_checkout
 
 AI_TOOLKIT_REQUIREMENTS="${AI_TOOLKIT_DIR}/requirements.txt"
 if [[ ! -f "${AI_TOOLKIT_REQUIREMENTS}" ]]; then

@@ -25,11 +25,13 @@ def parse_args(argv: Sequence[str] | None = None) -> tuple[PipelineSettings, Pat
     parser.add_argument(
         "--export-dir",
         type=Path,
-        default=Path("/home/ubuntu/export/loras"),
-        help="Destination directory for Comfy-ready LoRA files.",
+        default=None,
+        help="Destination directory for Comfy-ready LoRA files (default: drive.export_loras_dir).",
     )
     args = parser.parse_args(argv)
-    return load_pipeline_settings(args.config), args.export_dir.expanduser()
+    settings = load_pipeline_settings(args.config)
+    export_dir = args.export_dir.expanduser() if args.export_dir else settings.drive_export_loras_dir
+    return settings, export_dir
 
 
 def find_lora_files(training_dir: Path) -> list[Path]:

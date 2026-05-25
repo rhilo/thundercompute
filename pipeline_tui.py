@@ -9,15 +9,31 @@ import sys
 from pathlib import Path
 from typing import Iterable
 
+import yaml
 from textual.app import App, ComposeResult
 from textual.containers import Horizontal, Vertical
-from textual.widgets import Button, Footer, Header, Label, RichLog, Static
+from textual.widgets import Button, Footer, Header, Label, RichLog, Select, Static
 
 from drive_sync import COMFY_PULL_IDS, TRAINING_PULL_IDS
+from pipeline_config import THUNDER_HARDWARE_PRESETS, PipelineConfigError, write_hardware_preset
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 PIPELINE_CONFIG = SCRIPT_DIR / "pipeline.yaml"
 PIPELINE_EXAMPLE = SCRIPT_DIR / "pipeline.example.yaml"
+
+
+def hardware_options() -> list[tuple[str, str]]:
+    suggested = [
+        (f"{preset.label} (suggested)", key)
+        for key, preset in THUNDER_HARDWARE_PRESETS.items()
+        if preset.suggested
+    ]
+    others = [
+        (preset.label, key)
+        for key, preset in THUNDER_HARDWARE_PRESETS.items()
+        if not preset.suggested
+    ]
+    return suggested + others
 
 
 class PipelineTUI(App[None]):
@@ -77,6 +93,10 @@ class PipelineTUI(App[None]):
         with Vertical(id="train_actions", classes="row"):
             yield Label("Training workflow: setup, Drive pull, captioning, training, LoRA push")
             with Horizontal():
+                yield Label("Hardware preset:")
+                yield Select(hardware_options(), id="hardware_preset", value="best")
+                yield Button("Save Hardware Preset", id="save_hardware")
+            with Horizontal():
                 yield Button("Run Full Training Workflow", id="train_full", variant="success")
                 yield Button("Pull Drive Assets", id="train_pull")
                 yield Button("Run Setup", id="train_setup")
@@ -97,6 +117,7 @@ class PipelineTUI(App[None]):
         yield Footer()
 
     def on_mount(self) -> None:
+        self.query_one("#hardware_preset", Select).value = self.load_configured_hardware_preset()
         self.show_home()
 
     def action_home(self) -> None:
@@ -162,6 +183,7 @@ class PipelineTUI(App[None]):
             "train_export": self.training_export,
             "train_push": self.training_push,
             "train_promote": self.training_promote,
+            "save_hardware": self.save_hardware_action,
             "comfy_pull": self.comfy_pull,
             "comfy_pull_flux": self.comfy_pull_flux,
             "comfy_verify": self.comfy_verify,
@@ -176,6 +198,8 @@ class PipelineTUI(App[None]):
         self.set_buttons_disabled(True)
         try:
             self.ensure_pipeline_config()
+            if self.mode == "training":
+                self.save_selected_hardware_preset()
             for label, command in steps:
                 self.log(f"\n[bold cyan]>> {label}[/bold cyan]")
                 await self.run_command(command)
@@ -189,6 +213,29 @@ class PipelineTUI(App[None]):
     def set_buttons_disabled(self, disabled: bool) -> None:
         for button in self.query(Button):
             button.disabled = disabled
+
+    def selected_hardware_preset(self) -> str:
+        value = self.query_one("#hardware_preset", Select).value
+        if not isinstance(value, str):
+            return "best"
+        return value
+
+    def save_selected_hardware_preset(self) -> None:
+        preset_key = self.selected_hardware_preset()
+        write_hardware_preset(PIPELINE_CONFIG, preset_key)
+        label = THUNDER_HARDWARE_PRESETS[preset_key].label
+        self.log(f"[green]Hardware preset saved:[/green] {label} ({preset_key})")
+
+    def load_configured_hardware_preset(self) -> str:
+        if not PIPELINE_CONFIG.is_file():
+            return "best"
+        try:
+            with PIPELINE_CONFIG.open("r", encoding="utf-8") as handle:
+                raw = yaml.safe_load(handle)
+            profile = str(((raw or {}).get("instance") or {}).get("profile", "best"))
+        except Exception:
+            return "best"
+        return profile if profile in THUNDER_HARDWARE_PRESETS else "best"
 
     async def run_command(self, command: list[str]) -> None:
         self.log(f"[dim]{' '.join(command)}[/dim]")
@@ -222,6 +269,18 @@ class PipelineTUI(App[None]):
                 ("Push LoRAs to Drive", [sys.executable, "drive_sync.py", "push", "--profile", "training", "--only", "loras"]),
             ]
         )
+
+    async def save_hardware_action(self) -> None:
+        self.running = True
+        self.set_buttons_disabled(True)
+        try:
+            self.ensure_pipeline_config()
+            self.save_selected_hardware_preset()
+        except PipelineConfigError as exc:
+            self.log(f"[bold red]Hardware preset not saved:[/bold red] {exc}")
+        finally:
+            self.running = False
+            self.set_buttons_disabled(False)
 
     async def training_pull(self) -> None:
         await self.run_steps(
