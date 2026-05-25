@@ -20,6 +20,22 @@ from pipeline_config import THUNDER_HARDWARE_PRESETS, PipelineConfigError, write
 SCRIPT_DIR = Path(__file__).resolve().parent
 PIPELINE_CONFIG = SCRIPT_DIR / "pipeline.yaml"
 PIPELINE_EXAMPLE = SCRIPT_DIR / "pipeline.example.yaml"
+VENV_PYTHON = SCRIPT_DIR / ".venv" / "bin" / "python"
+
+
+def python_command() -> str:
+    if VENV_PYTHON.is_file():
+        return str(VENV_PYTHON)
+    return sys.executable
+
+
+def training_env_ready() -> bool:
+    try:
+        import transformers  # noqa: F401
+        import torch  # noqa: F401
+    except ImportError:
+        return False
+    return True
 
 
 def hardware_options() -> list[tuple[str, str]]:
@@ -102,6 +118,7 @@ class PipelineTUI(App[None]):
                 yield Button("Run Setup", id="train_setup")
                 yield Button("Post-Setup FA2", id="train_post_setup")
             with Horizontal():
+                yield Button("Train without Drive", id="train_local", variant="success")
                 yield Button("Preprocess + Caption + Train", id="train_pipeline")
                 yield Button("Export LoRAs", id="train_export")
                 yield Button("Push LoRAs", id="train_push")
@@ -176,6 +193,7 @@ class PipelineTUI(App[None]):
 
         actions = {
             "train_full": self.training_full_workflow,
+            "train_local": self.training_local_workflow,
             "train_pull": self.training_pull,
             "train_setup": self.training_setup,
             "train_post_setup": self.training_post_setup,
@@ -192,6 +210,14 @@ class PipelineTUI(App[None]):
         action = actions.get(button_id)
         if action is not None:
             self.run_worker(action(), exclusive=True, thread=False)
+
+    def require_training_env(self) -> None:
+        if training_env_ready():
+            return
+        raise RuntimeError(
+            "Training packages are not installed yet. Use Run Setup first "
+            "(bash setup.sh --no-sync), then try again."
+        )
 
     async def run_steps(self, steps: Iterable[tuple[str, list[str]]]) -> None:
         self.running = True
@@ -255,18 +281,43 @@ class PipelineTUI(App[None]):
         if returncode != 0:
             raise RuntimeError(f"{command[0]} exited with {returncode}")
 
+    def python_steps(self, *parts: str) -> list[str]:
+        return [python_command(), *parts]
+
     async def training_full_workflow(self) -> None:
         await self.run_steps(
             [
-                ("Check Google Drive", [sys.executable, "drive_sync.py", "check"]),
+                ("Run training setup", ["bash", "setup.sh", "--no-sync"]),
+                ("Check Google Drive", self.python_steps("drive_sync.py", "check")),
                 (
                     "Pull training assets (input, flux, venv)",
-                    [sys.executable, "drive_sync.py", "pull", "--profile", "training", "--only", TRAINING_PULL_IDS],
+                    self.python_steps(
+                        "drive_sync.py",
+                        "pull",
+                        "--profile",
+                        "training",
+                        "--only",
+                        TRAINING_PULL_IDS,
+                    ),
                 ),
+                ("Run full pipeline (preprocess, caption, config, train)", self.python_steps("run_pipeline.py")),
+                ("Export LoRAs", self.python_steps("export_loras.py")),
+                (
+                    "Push LoRAs to Drive",
+                    self.python_steps("drive_sync.py", "push", "--profile", "training", "--only", "loras"),
+                ),
+            ]
+        )
+
+    async def training_local_workflow(self) -> None:
+        await self.run_steps(
+            [
                 ("Run training setup", ["bash", "setup.sh", "--no-sync"]),
-                ("Run full pipeline (preprocess, caption, config, train)", [sys.executable, "run_pipeline.py"]),
-                ("Export LoRAs", [sys.executable, "export_loras.py"]),
-                ("Push LoRAs to Drive", [sys.executable, "drive_sync.py", "push", "--profile", "training", "--only", "loras"]),
+                (
+                    "Run full pipeline (preprocess, caption, config, train)",
+                    self.python_steps("run_pipeline.py", "--from", "preprocess"),
+                ),
+                ("Export LoRAs", self.python_steps("export_loras.py")),
             ]
         )
 
@@ -285,8 +336,18 @@ class PipelineTUI(App[None]):
     async def training_pull(self) -> None:
         await self.run_steps(
             [
-                ("Check Google Drive", [sys.executable, "drive_sync.py", "check"]),
-                ("Pull training assets", [sys.executable, "drive_sync.py", "pull", "--profile", "training", "--only", TRAINING_PULL_IDS]),
+                ("Check Google Drive", self.python_steps("drive_sync.py", "check")),
+                (
+                    "Pull training assets",
+                    self.python_steps(
+                        "drive_sync.py",
+                        "pull",
+                        "--profile",
+                        "training",
+                        "--only",
+                        TRAINING_PULL_IDS,
+                    ),
+                ),
             ]
         )
 
@@ -294,33 +355,51 @@ class PipelineTUI(App[None]):
         await self.run_steps([("Run training setup", ["bash", "setup.sh", "--no-sync"])])
 
     async def training_post_setup(self) -> None:
-        await self.run_steps([("Install/verify flash-attn", [sys.executable, "post-setup.py", "--max-jobs", "3"])])
+        self.require_training_env()
+        await self.run_steps(
+            [("Install/verify flash-attn", self.python_steps("post-setup.py", "--max-jobs", "3"))]
+        )
 
     async def training_pipeline(self) -> None:
-        await self.run_steps([("Run full pipeline", [sys.executable, "run_pipeline.py"])])
+        self.require_training_env()
+        await self.run_steps([("Run full pipeline", self.python_steps("run_pipeline.py"))])
 
     async def training_export(self) -> None:
-        await self.run_steps([("Export LoRAs", [sys.executable, "export_loras.py"])])
+        self.require_training_env()
+        await self.run_steps([("Export LoRAs", self.python_steps("export_loras.py"))])
 
     async def training_push(self) -> None:
-        await self.run_steps([("Push LoRAs", [sys.executable, "drive_sync.py", "push", "--profile", "training", "--only", "loras"])])
+        await self.run_steps(
+            [
+                (
+                    "Push LoRAs",
+                    self.python_steps("drive_sync.py", "push", "--profile", "training", "--only", "loras"),
+                )
+            ]
+        )
 
     async def training_promote(self) -> None:
-        await self.run_steps([("Promote LoRAs for Comfy", [sys.executable, "drive_sync.py", "promote-loras"])])
+        await self.run_steps([("Promote LoRAs for Comfy", self.python_steps("drive_sync.py", "promote-loras"))])
 
     async def comfy_pull(self) -> None:
         await self.run_steps(
             [
-                ("Check Google Drive", [sys.executable, "drive_sync.py", "check"]),
-                ("Pull Comfy models", [sys.executable, "drive_sync.py", "pull", "--profile", "comfyui", "--only", COMFY_PULL_IDS]),
+                ("Check Google Drive", self.python_steps("drive_sync.py", "check")),
+                (
+                    "Pull Comfy models",
+                    self.python_steps("drive_sync.py", "pull", "--profile", "comfyui", "--only", COMFY_PULL_IDS),
+                ),
             ]
         )
 
     async def comfy_pull_flux(self) -> None:
         await self.run_steps(
             [
-                ("Check Google Drive", [sys.executable, "drive_sync.py", "check"]),
-                ("Pull FLUX diffusers", [sys.executable, "drive_sync.py", "pull", "--profile", "comfyui", "--only", "flux_diffusers"]),
+                ("Check Google Drive", self.python_steps("drive_sync.py", "check")),
+                (
+                    "Pull FLUX diffusers",
+                    self.python_steps("drive_sync.py", "pull", "--profile", "comfyui", "--only", "flux_diffusers"),
+                ),
             ]
         )
 
@@ -344,7 +423,14 @@ class PipelineTUI(App[None]):
             self.set_buttons_disabled(False)
 
     async def comfy_push(self) -> None:
-        await self.run_steps([("Push Comfy renders", [sys.executable, "drive_sync.py", "push", "--profile", "comfyui", "--only", "images"])])
+        await self.run_steps(
+            [
+                (
+                    "Push Comfy renders",
+                    self.python_steps("drive_sync.py", "push", "--profile", "comfyui", "--only", "images"),
+                )
+            ]
+        )
 
 
 if __name__ == "__main__":

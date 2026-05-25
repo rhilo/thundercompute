@@ -74,6 +74,13 @@ warn_if_rclone_remote_missing() {
 install_rclone
 warn_if_rclone_remote_missing
 
+echo "[start] Thunder Compute TUI — choose Train LoRA or Generate Images (ComfyUI)"
+
+if [[ -d "${VENV_DIR}" && ! -x "${VENV_DIR}/bin/python" ]]; then
+  echo "[start] Removing broken virtual environment at ${VENV_DIR}"
+  rm -rf "${VENV_DIR}"
+fi
+
 if [[ ! -x "${VENV_DIR}/bin/python" ]]; then
   echo "[start] Creating minimal venv for the TUI at ${VENV_DIR}"
   python3 -m venv "${VENV_DIR}"

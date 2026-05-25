@@ -114,9 +114,15 @@ ensure_rclone_remote() {
   fi
 }
 
+install_rclone
+
 if [[ "${SYNC_DRIVE}" -eq 1 ]]; then
-  install_rclone
   ensure_rclone_remote "$(drive_remote_name)"
+fi
+
+if [[ -d "${VENV_DIR}" && ! -x "${VENV_DIR}/bin/python" ]]; then
+  echo "[setup] Removing broken virtual environment at ${VENV_DIR}"
+  rm -rf "${VENV_DIR}"
 fi
 
 if [[ ! -d "${VENV_DIR}" ]]; then

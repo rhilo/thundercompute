@@ -419,7 +419,8 @@ python3 drive_sync.py check</code></pre>
         </thead>
         <tbody>
           <tr><td>Save Hardware Preset</td><td>Writes your selected machine type into <code>pipeline.yaml</code>.</td><td>Use after choosing a GPU and RAM preset.</td></tr>
-          <tr><td>Run Full Training Workflow</td><td>Checks Drive, pulls input/model files, runs setup, cleans images, captions images, creates the ai-toolkit file, trains, exports LoRAs, and pushes LoRAs to Drive.</td><td>Use when you want the whole training path from Drive input to Drive output.</td></tr>
+          <tr><td>Train without Drive</td><td><code>bash setup.sh --no-sync</code>, then <code>python3 run_pipeline.py --from preprocess</code>, then <code>export_loras.py</code>.</td><td>Use when training files are already on the instance and you do not want Google Drive in the loop.</td></tr>
+          <tr><td>Run Full Training Workflow</td><td>Runs setup first, then checks Drive, pulls input/model files, runs the full pipeline, exports LoRAs, and pushes LoRAs to Drive.</td><td>Use when you want the whole training path from Drive input to Drive output.</td></tr>
           <tr><td>Pull Drive Assets</td><td><code>drive_sync.py check</code>, then pull <code>input</code>, <code>flux</code>, and <code>venv</code>.</td><td>Use when the instance needs training images or model files from Drive.</td></tr>
           <tr><td>Run Setup</td><td><code>bash setup.sh --no-sync</code>.</td><td>Use to install Python packages, PyTorch, and ai-toolkit without copying Drive files.</td></tr>
           <tr><td>Post-Setup FA2</td><td><code>python3 post-setup.py --max-jobs 3</code>.</td><td>Optional. Use only if you want to compile Flash Attention for captioning.</td></tr>
